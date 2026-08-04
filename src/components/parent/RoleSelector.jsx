@@ -3,7 +3,7 @@ import { useApp } from '../../context/AppContext';
 
 export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginWithCode }) {
   const { loginParentByCode } = useApp();
-  const [viewMode, setViewMode] = useState('main'); // 'main' (escolha inicial) ou 'parent_options' (opções de EE)
+  const [viewMode, setViewMode] = useState('main'); // 'main' ou 'parent_options'
   const [code, setCode] = useState('');
   const [error, setError] = useState('');
 
@@ -34,7 +34,7 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
 
         <h1 className="text-2xl font-bold text-gray-900 mb-2">SCS Manager</h1>
 
-        {/* VISTA 1: Escolha Principal (Treinador vs Encarregado de Educação) */}
+        {/* VISTA 1: Escolha Principal */}
         {viewMode === 'main' && (
           <>
             <p className="text-gray-600 mb-8 text-sm">Selecione o seu perfil para continuar</p>
@@ -59,7 +59,7 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
           </>
         )}
 
-        {/* VISTA 2: Opções do Encarregado de Educação (Nova Inscrição vs Inserir Código) */}
+        {/* VISTA 2: Opções do Encarregado de Educação */}
         {viewMode === 'parent_options' && (
           <div className="text-left space-y-4">
             <button 

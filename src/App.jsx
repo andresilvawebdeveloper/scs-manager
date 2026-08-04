@@ -1,45 +1,36 @@
 import React, { useState } from 'react';
 import { AppProvider } from './context/AppContext';
 import RoleSelector from './components/parent/RoleSelector';
-import ParentAuthChoice from './components/parent/RoleSelector';
 import RegistrationWizard from './components/parent/RegistrationWizard';
 import ParentDashboard from './components/parent/ParentDashboard';
 import CoachLogin from './components/coach/CoachLogin';
 import Dashboard from './components/coach/Dashboard';
 
 export default function App() {
-  const [view, setView] = useState('selector'); // 'selector', 'parent_auth_choice', 'parent_form', 'parent_dashboard', 'coach_login', 'coach_dashboard'
+  const [view, setView] = useState('selector'); // 'selector', 'parent_form', 'parent_dashboard', 'coach_login', 'coach_dashboard'
   const [activeParentRegistration, setActiveParentRegistration] = useState(null);
 
   return (
     <AppProvider>
       <div className="min-h-screen bg-gray-50">
         
-        {/* Seletor Inicial de Perfil */}
+        {/* Seletor Inicial e Opções de Encarregado de Educação */}
         {view === 'selector' && (
           <RoleSelector
             onSelectRole={(role) => {
-              if (role === 'parent') setView('parent_auth_choice');
               if (role === 'coach') setView('coach_login');
             }}
-          />
-        )}
-
-        {/* Escolha do Encarregado de Educação (Nova Inscrição vs Entrar com Código) */}
-        {view === 'parent_auth_choice' && (
-          <ParentAuthChoice
             onNewRegistration={() => setView('parent_form')}
             onLoginWithCode={(registrationData) => {
               setActiveParentRegistration(registrationData);
               setView('parent_dashboard');
             }}
-            onBack={() => setView('selector')}
           />
         )}
 
         {/* Formulário Passo a Passo (Nova Inscrição) */}
         {view === 'parent_form' && (
-          <RegistrationWizard onBack={() => setView('parent_auth_choice')} />
+          <RegistrationWizard onBack={() => setView('selector')} />
         )}
 
         {/* Área Pessoal do Encarregado de Educação (Com Código de Acesso) */}
