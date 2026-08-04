@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 export default function RegistrationWizard({ onBack }) {
   const { addRegistration } = useApp();
   const [step, setStep] = useState(1);
-  const totalSteps = 8;
+  const totalSteps = 10; // Atualizado para incluir Privacidade e Regulamento
   
   const [formData, setFormData] = useState({
     athleteName: '',
@@ -21,18 +21,23 @@ export default function RegistrationWizard({ onBack }) {
     memberType: 'Atleta',
     clothingType: 'Fato de Treino',
     clothingSize: 'M',
+    privacyNotified: 'Sim', // 'Sim' ou 'Não'
+    marketingConsent: 'Sim', // 'Sim' ou 'Não'
+    acceptedRegulations: false, // Confirmação do Regulamento Geral
   });
 
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState('');
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
+    const { name, value, type, checked } = e.target;
+    setFormData({ 
+      ...formData, 
+      [name]: type === 'checkbox' ? checked : value 
+    });
     if (error) setError('');
   };
 
-  // Validação estrita por cada pergunta individual
   const validateCurrentStep = () => {
     setError('');
     
@@ -91,6 +96,12 @@ export default function RegistrationWizard({ onBack }) {
           return false;
         }
         break;
+      case 10:
+        if (!formData.acceptedRegulations) {
+          setError('Deve confirmar que leu e aceita o Regulamento Geral para submeter a inscrição.');
+          return false;
+        }
+        break;
       default:
         break;
     }
@@ -141,14 +152,14 @@ export default function RegistrationWizard({ onBack }) {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 px-4 py-8">
-      <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-6 md:p-8 border-t-4 border-clubRed">
+      <div className="max-w-lg w-full bg-white rounded-2xl shadow-xl p-6 md:p-8 border-t-4 border-clubRed">
         
         <div className="flex justify-between items-center mb-6">
           <button onClick={onBack} className="text-sm text-gray-500 hover:text-gray-800 font-medium">
             ← Voltar
           </button>
           <span className="text-xs font-bold px-3 py-1 bg-red-50 text-clubRed rounded-full">
-            Pergunta {step} de {totalSteps}
+            Passo {step} de {totalSteps}
           </span>
         </div>
 
@@ -366,6 +377,116 @@ export default function RegistrationWizard({ onBack }) {
                   <option value="L">L</option>
                   <option value="XL">XL</option>
                 </select>
+              </div>
+            </div>
+          )}
+
+          {/* PERGUNTA 9: Notificação de Privacidade (RGPD Sport Clube Sanjoanense) */}
+          {step === 9 && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold text-gray-900">a) Notificação de Privacidade</h3>
+              
+              <div className="max-h-48 overflow-y-auto p-3 bg-gray-50 border border-gray-200 rounded-xl text-[11px] text-gray-600 leading-relaxed text-justify">
+                A Associação “Sport Clube Sanjoanense”, pessoa coletiva nº 501599100, com sede na Rua Dep. Pedro Botelho Neves, é a responsável pelo tratamento dos seus dados pessoais. Os dados recolhidos no presente formulário serão utilizados para efeitos de inscrição em competições desportivas, seguros obrigatórios, captação e divulgação de imagens e vídeos nos canais oficiais do Clube, e convocações. Para exercer os seus direitos, contacte geral@scsanjoanense.pt.
+              </div>
+
+              <div className="space-y-3 pt-2">
+                <div>
+                  <p className="text-xs font-semibold text-gray-800 mb-1">Fui notificado da política de privacidade</p>
+                  <div className="flex space-x-6">
+                    <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="privacyNotified" 
+                        value="Sim" 
+                        checked={formData.privacyNotified === 'Sim'} 
+                        onChange={handleChange} 
+                        className="text-clubRed focus:ring-clubRed"
+                      />
+                      <span>Sim</span>
+                    </label>
+                    <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="privacyNotified" 
+                        value="Não" 
+                        checked={formData.privacyNotified === 'Não'} 
+                        onChange={handleChange} 
+                        className="text-clubRed focus:ring-clubRed"
+                      />
+                      <span>Não</span>
+                    </label>
+                  </div>
+                </div>
+
+                <div className="pt-2 border-t border-gray-100">
+                  <p className="text-xs font-semibold text-gray-800 mb-1">
+                    “Autorizo que o Clube possa processar os meus dados para efeitos de envio de comunicações sobre todas as suas atividades, tanto por meios eletrónicos como telefónicos”.
+                  </p>
+                  <div className="flex space-x-6">
+                    <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="marketingConsent" 
+                        value="Sim" 
+                        checked={formData.marketingConsent === 'Sim'} 
+                        onChange={handleChange} 
+                        className="text-clubRed focus:ring-clubRed"
+                      />
+                      <span>Sim</span>
+                    </label>
+                    <label className="flex items-center space-x-2 text-xs font-medium cursor-pointer">
+                      <input 
+                        type="radio" 
+                        name="marketingConsent" 
+                        value="Não" 
+                        checked={formData.marketingConsent === 'Não'} 
+                        onChange={handleChange} 
+                        className="text-clubRed focus:ring-clubRed"
+                      />
+                      <span>Não</span>
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* PERGUNTA 10: Regulamento Geral */}
+          {step === 10 && (
+            <div className="space-y-4">
+              <h3 className="text-sm font-bold text-gray-900">Regulamento Geral do Clube</h3>
+              
+              <p className="text-xs text-gray-600">
+                Para concluir a inscrição, deve consultar e aceitar o regulamento geral em vigor no clube.
+              </p>
+
+              <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center space-y-2">
+                <span className="text-xs text-gray-500 block">Documento oficial disponível:</span>
+                <a 
+                  href="/Regulamentos gerais 26-27.pdf" 
+                  target="_blank" 
+                  rel="noopener noreferrer" 
+                  className="inline-block px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white font-semibold rounded-xl text-xs transition shadow-sm"
+                >
+                  📄 Abrir Regulamento Geral (PDF)
+                </a>
+              </div>
+
+              <div className="pt-3">
+                <label className="flex items-start space-x-3 cursor-pointer">
+                  <input 
+                    type="checkbox" 
+                    name="acceptedRegulations" 
+                    checked={formData.acceptedRegulations} 
+                    onChange={handleChange} 
+                    className="mt-0.5 h-4 w-4 text-clubRed rounded border-gray-300 focus:ring-clubRed"
+                    required
+                  />
+                  <span className="text-xs text-gray-800 font-medium leading-tight">
+                    Declaro que li, compreendi e aceito integralmente os termos da política de privacidade e o Regulamento Geral do Sport Clube Sanjoanense.
+                  </span>
+                </label>
               </div>
             </div>
           )}

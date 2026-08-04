@@ -13,6 +13,18 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : {};
   });
 
+  // Estado para os Eventos do Clube
+  const [events, setEvents] = useState(() => {
+    const saved = localStorage.getItem('scs_events');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  // Estado para o controlo de presença/participação nos eventos ({ eventId_athleteId: true/false })
+  const [eventAttendances, setEventAttendances] = useState(() => {
+    const saved = localStorage.getItem('scs_event_attendances');
+    return saved ? JSON.parse(saved) : {};
+  });
+
   useEffect(() => {
     localStorage.setItem('scs_registrations', JSON.stringify(registrations));
   }, [registrations]);
@@ -20,6 +32,14 @@ export function AppProvider({ children }) {
   useEffect(() => {
     localStorage.setItem('scs_attendances', JSON.stringify(attendances));
   }, [attendances]);
+
+  useEffect(() => {
+    localStorage.setItem('scs_events', JSON.stringify(events));
+  }, [events]);
+
+  useEffect(() => {
+    localStorage.setItem('scs_event_attendances', JSON.stringify(eventAttendances));
+  }, [eventAttendances]);
 
   // Submeter nova inscrição
   const addRegistration = (formData) => {
@@ -49,11 +69,10 @@ export function AppProvider({ children }) {
   };
 
   // Treinador aceita ou rejeita
-  const updateRegistrationStatus = (id, status, reason = '') => {
+  const updateRegistrationStatus = (id, status, reason = '', assignedClass = 'Formação geral') => {
     if (status === 'rejected') {
       setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
     } else {
-      // Geração de código totalmente aleatório e seguro (ex: SCS-9K4M2X)
       const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
       let randomPart = '';
       for (let i = 0; i < 6; i++) {
@@ -64,11 +83,22 @@ export function AppProvider({ children }) {
       setRegistrations((prev) =>
         prev.map((reg) => 
           reg.id === id 
-            ? { ...reg, status, accessCode: reg.accessCode || secureRandomCode, rejectionReason: reason } 
+            ? { 
+                ...reg, 
+                status, 
+                accessCode: reg.accessCode || secureRandomCode, 
+                rejectionReason: reason,
+                assignedClass: assignedClass 
+              } 
             : reg
         )
       );
     }
+  };
+
+  // Remover atleta aceite do clube
+  const removeAcceptedAthlete = (id) => {
+    setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
   };
 
   // Encarregado de Educação atualiza dados de uma inscrição aceite
@@ -80,7 +110,6 @@ export function AppProvider({ children }) {
             ...reg,
             ...updatedData,
             status: 'pending', // Volta a ser necessário aceitação do treinador
-            // Mantém o código de acesso que já tinha
           };
         }
         return reg;
@@ -115,10 +144,33 @@ export function AppProvider({ children }) {
     return { success: false, message: "Email ou password incorretos." };
   };
 
-  // Marcar presença
+  // Marcar presença normal de treino
   const toggleAttendance = (athleteId, date) => {
     const key = `${athleteId}_${date}`;
     setAttendances((prev) => ({
+      ...prev,
+      [key]: !prev[key],
+    }));
+  };
+
+  // Criar novo Evento
+  const addEvent = (eventData) => {
+    const newEvent = {
+      id: Date.now().toString(),
+      ...eventData,
+    };
+    setEvents((prev) => [newEvent, ...prev]);
+  };
+
+  // Eliminar Evento
+  const deleteEvent = (eventId) => {
+    setEvents((prev) => prev.filter((ev) => ev.id !== eventId));
+  };
+
+  // Alternar presença/participação do atleta no evento (Switch)
+  const toggleEventAttendance = (eventId, athleteId) => {
+    const key = `${eventId}_${athleteId}`;
+    setEventAttendances((prev) => ({
       ...prev,
       [key]: !prev[key],
     }));
@@ -129,12 +181,18 @@ export function AppProvider({ children }) {
       value={{
         registrations,
         attendances,
+        events,
+        eventAttendances,
         addRegistration,
         updateRegistrationStatus,
+        removeAcceptedAthlete,
         updateRegistrationByParent,
         loginParentByCode,
         loginCoach,
         toggleAttendance,
+        addEvent,
+        deleteEvent,
+        toggleEventAttendance,
       }}
     >
       {children}
