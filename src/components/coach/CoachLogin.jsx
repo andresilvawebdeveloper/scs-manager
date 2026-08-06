@@ -1,20 +1,36 @@
 import React, { useState } from 'react';
-import { useApp } from '../../context/AppContext';
+import { supabase } from '../../services/supabaseClient';
 
 export default function CoachLogin({ onLoginSuccess, onBack }) {
-  const { loginCoach } = useApp();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
 
-  const handleLogin = (e) => {
+  const handleLogin = async (e) => {
     e.preventDefault();
-    const result = loginCoach(email, password);
-    
-    if (result.success) {
-      onLoginSuccess();
-    } else {
-      setError(result.message);
+    setError('');
+    setLoading(true);
+
+    try {
+      const { data, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password,
+      });
+
+      if (authError) {
+        throw new Error(authError.message === 'Invalid login credentials' 
+          ? 'Email ou password incorretos.' 
+          : authError.message);
+      }
+
+      if (data.user) {
+        onLoginSuccess();
+      }
+    } catch (err) {
+      setError(err.message || 'Erro ao efetuar login.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -25,14 +41,14 @@ export default function CoachLogin({ onLoginSuccess, onBack }) {
           ← Voltar
         </button>
         <h2 className="text-2xl font-bold text-gray-900 mb-2">Área do Treinador</h2>
-        <p className="text-gray-600 mb-6 text-sm">Insira as suas credenciais para entrar</p>
+        <p className="text-gray-600 mb-6 text-sm">Insira as suas credenciais do Supabase para entrar</p>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">E-mail</label>
             <input
               type="email"
-              placeholder="treinador@ginastica.com"
+              placeholder="o-seu-email@dominio.com"
               value={email}
               onChange={(e) => { setEmail(e.target.value); setError(''); }}
               className="w-full p-3 border border-gray-300 rounded-xl focus:ring-2 focus:ring-clubRed focus:outline-none"
@@ -54,15 +70,14 @@ export default function CoachLogin({ onLoginSuccess, onBack }) {
 
           {error && <p className="text-xs text-clubRed font-medium mt-1">{error}</p>}
 
-          <button type="submit" className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl shadow-md transition">
-            Entrar no Painel
+          <button 
+            type="submit" 
+            disabled={loading}
+            className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl shadow-md transition disabled:opacity-50"
+          >
+            {loading ? 'A autenticar...' : 'Entrar no Painel'}
           </button>
         </form>
-
-        <div className="mt-4 text-center text-xs text-gray-400">
-          <p>Credenciais de teste:</p>
-          <p>Email: <strong>treinador@ginastica.com</strong> | Pass: <strong>password123</strong></p>
-        </div>
       </div>
     </div>
   );
