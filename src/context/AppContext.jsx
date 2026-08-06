@@ -19,7 +19,7 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Estado para o controlo de presença/participação nos eventos ({ eventId_athleteId: true/false })
+  // Estado para o controlo de presença/participação nos eventos
   const [eventAttendances, setEventAttendances] = useState(() => {
     const saved = localStorage.getItem('scs_event_attendances');
     return saved ? JSON.parse(saved) : {};
@@ -109,7 +109,7 @@ export function AppProvider({ children }) {
           return {
             ...reg,
             ...updatedData,
-            status: 'pending', // Volta a ser necessário aceitação do treinador
+            status: 'pending',
           };
         }
         return reg;
@@ -144,12 +144,20 @@ export function AppProvider({ children }) {
     return { success: false, message: "Email ou password incorretos." };
   };
 
-  // Marcar presença normal de treino
+  // Ciclo de presenças: 'presente' -> 'justificado' -> 'injustificado' -> 'lesao' -> null
   const toggleAttendance = (athleteId, date) => {
     const key = `${athleteId}_${date}`;
+    const current = attendances[key];
+    
+    let nextState = 'presente';
+    if (current === 'presente') nextState = 'justificado';
+    else if (current === 'justificado') nextState = 'injustificado';
+    else if (current === 'injustificado') nextState = 'lesao';
+    else if (current === 'lesao') nextState = null;
+
     setAttendances((prev) => ({
       ...prev,
-      [key]: !prev[key],
+      [key]: nextState,
     }));
   };
 
@@ -167,7 +175,7 @@ export function AppProvider({ children }) {
     setEvents((prev) => prev.filter((ev) => ev.id !== eventId));
   };
 
-  // Alternar presença/participação do atleta no evento (Switch)
+  // Participação no evento
   const toggleEventAttendance = (eventId, athleteId) => {
     const key = `${eventId}_${athleteId}`;
     setEventAttendances((prev) => ({

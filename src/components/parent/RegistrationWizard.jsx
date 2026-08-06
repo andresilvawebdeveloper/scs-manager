@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 export default function RegistrationWizard({ onBack }) {
   const { addRegistration } = useApp();
   const [step, setStep] = useState(1);
-  const totalSteps = 10; // Atualizado para incluir Privacidade e Regulamento
+  const totalSteps = 10;
   
   const [formData, setFormData] = useState({
     athleteName: '',
@@ -17,13 +17,14 @@ export default function RegistrationWizard({ onBack }) {
     parentName: '',
     parentCC: '',
     phone: '+351 ',
+    email: '',
     memberNumber: '',
     memberType: 'Atleta',
     clothingType: 'Fato de Treino',
     clothingSize: 'M',
-    privacyNotified: 'Sim', // 'Sim' ou 'Não'
-    marketingConsent: 'Sim', // 'Sim' ou 'Não'
-    acceptedRegulations: false, // Confirmação do Regulamento Geral
+    privacyNotified: 'Sim',
+    marketingConsent: 'Sim',
+    acceptedRegulations: false,
   });
 
   const [feedback, setFeedback] = useState(null);
@@ -89,6 +90,11 @@ export default function RegistrationWizard({ onBack }) {
           setError('Telemóvel inválido (deve começar com +351 seguido de 9 dígitos).');
           return false;
         }
+        const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+        if (!emailRegex.test(formData.email.trim())) {
+          setError('Por favor, insira um endereço de email válido.');
+          return false;
+        }
         break;
       case 7:
         if (!formData.memberNumber.trim()) {
@@ -124,14 +130,27 @@ export default function RegistrationWizard({ onBack }) {
     setFeedback(result);
   };
 
+  // Ecrã de feedback / sucesso ao submeter a inscrição
   if (feedback) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
-        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border-t-4 border-clubRed">
-          <h2 className={`text-xl font-bold mb-4 ${feedback.success ? 'text-green-600' : 'text-clubRed'}`}>
-            {feedback.success ? 'Inscrição Submetida!' : 'Atenção'}
-          </h2>
-          <p className="text-gray-700 mb-6 text-sm">{feedback.message}</p>
+        <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border-t-4 border-clubRed space-y-4">
+          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-xl">
+            ✓
+          </div>
+          <h2 className="text-xl font-bold text-gray-900">Inscrição Submetida com Sucesso!</h2>
+          
+          <div className="text-xs text-gray-600 space-y-2 text-left bg-gray-50 p-4 rounded-xl border border-gray-100 leading-relaxed">
+            <p><strong>O que acontece agora?</strong></p>
+            <p>1. O Sport Clube Sanjoanense irá analisar e revisar a ficha de inscrição do atleta.</p>
+            <p>
+              2. <strong>Enviaremos um email de notificação para:</strong> <br />
+              <span className="font-semibold text-clubRed">{formData.email}</span>
+            </p>
+            <p>3. Assim que a inscrição for aceite, receberá nesse mesmo email o seu <strong>Código de Acesso</strong> exclusivo para entrar na Área Pessoal.</p>
+            <p>4. Caso seja necessário corrigir algum dado, a ficha será devolvida para que possa revisá-la e alterá-la.</p>
+          </div>
+
           <button
             onClick={() => {
               if (feedback.success) {
@@ -141,7 +160,7 @@ export default function RegistrationWizard({ onBack }) {
                 setStep(1);
               }
             }}
-            className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl text-sm transition"
+            className="w-full py-3.5 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl text-sm transition shadow"
           >
             {feedback.success ? 'Voltar ao Início' : 'Tentar Novamente'}
           </button>
@@ -165,7 +184,6 @@ export default function RegistrationWizard({ onBack }) {
 
         <form onSubmit={handleNext} className="space-y-6">
           
-          {/* PERGUNTA 1: Nome do Atleta */}
           {step === 1 && (
             <div className="space-y-3">
               <label className="block text-base font-bold text-gray-900">
@@ -183,7 +201,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 2: Data de Nascimento e Sexo */}
           {step === 2 && (
             <div className="space-y-4">
               <div>
@@ -215,7 +232,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 3: CC do Atleta */}
           {step === 3 && (
             <div className="space-y-3">
               <label className="block text-base font-bold text-gray-900">
@@ -234,7 +250,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 4: Morada, Localidade e Código Postal */}
           {step === 4 && (
             <div className="space-y-3">
               <label className="block text-base font-bold text-gray-900">
@@ -270,7 +285,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 5: Nome do EE e CC do EE */}
           {step === 5 && (
             <div className="space-y-3">
               <label className="block text-base font-bold text-gray-900">
@@ -296,26 +310,42 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 6: Telemóvel */}
           {step === 6 && (
-            <div className="space-y-3">
-              <label className="block text-base font-bold text-gray-900">
-                Qual é o contacto telefónico de emergência?
-              </label>
-              <input
-                type="text"
-                name="phone"
-                value={formData.phone}
-                onChange={handleChange}
-                placeholder="+351 912345678"
-                className="w-full p-3.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-clubRed focus:outline-none"
-                autoFocus
-              />
-              <span className="text-[11px] text-gray-400 block">Deve começar com +351</span>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-base font-bold text-gray-900 mb-1">
+                  Qual é o contacto telefónico de emergência?
+                </label>
+                <input
+                  type="text"
+                  name="phone"
+                  value={formData.phone}
+                  onChange={handleChange}
+                  placeholder="+351 912345678"
+                  className="w-full p-3.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-clubRed focus:outline-none"
+                  autoFocus
+                />
+                <span className="text-[11px] text-gray-400 block mt-1">Deve começar com +351</span>
+              </div>
+
+              <div>
+                <label className="block text-base font-bold text-gray-900 mb-1">
+                  Qual é o Email do Encarregado de Educação?
+                </label>
+                <input
+                  type="email"
+                  name="email"
+                  value={formData.email}
+                  onChange={handleChange}
+                  placeholder="exemplo@dominio.com"
+                  className="w-full p-3.5 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-clubRed focus:outline-none"
+                  required
+                />
+                <span className="text-[11px] text-gray-400 block mt-1">Para onde enviaremos o estado da inscrição e o código de acesso.</span>
+              </div>
             </div>
           )}
 
-          {/* PERGUNTA 7: Número de Sócio e Titular */}
           {step === 7 && (
             <div className="space-y-3">
               <label className="block text-base font-bold text-gray-900">
@@ -346,7 +376,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 8: Merchandising / Roupa */}
           {step === 8 && (
             <div className="space-y-3">
               <label className="block text-base font-bold text-gray-900">
@@ -381,7 +410,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 9: Notificação de Privacidade (RGPD Sport Clube Sanjoanense) */}
           {step === 9 && (
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-gray-900">a) Notificação de Privacidade</h3>
@@ -452,7 +480,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PERGUNTA 10: Regulamento Geral */}
           {step === 10 && (
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-gray-900">Regulamento Geral do Clube</h3>
@@ -464,7 +491,7 @@ export default function RegistrationWizard({ onBack }) {
               <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center space-y-2">
                 <span className="text-xs text-gray-500 block">Documento oficial disponível:</span>
                 <a 
-                  href="/Regulamentos gerais 26-27.pdf" 
+                  href="/Regulamento geral.pdf" 
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="inline-block px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white font-semibold rounded-xl text-xs transition shadow-sm"

@@ -17,7 +17,7 @@ export default function Dashboard({ onLogout }) {
 
   const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'accepted', 'attendance', 'events'
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedClassFilter, setSelectedClassFilter] = useState('Formação infantil'); // Turma selecionada para presenças
+  const [selectedClassFilter, setSelectedClassFilter] = useState('Formação infantil');
   const [selectedClasses, setSelectedClasses] = useState({});
 
   // Formulário para novo evento
@@ -256,7 +256,7 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: PRESENÇAS (Separado por Turma) */}
+        {/* SECÇÃO: PRESENÇAS (Com os 4 Estados) */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -270,6 +270,7 @@ export default function Dashboard({ onLogout }) {
                   <option value="Formação infantil">Formação infantil</option>
                   <option value="Formação geral">Formação geral</option>
                   <option value="Formação avançada">Formação avançada</option>
+                  <option value="Formação avançada">Pré-Representação</option>
                   <option value="Representação">Representação</option>
                 </select>
               </div>
@@ -303,7 +304,25 @@ export default function Dashboard({ onLogout }) {
               }
 
               return athletesInSelectedClass.map((reg) => {
-                const isPresent = attendances[`${reg.id}_${selectedDate}`] || false;
+                const status = attendances[`${reg.id}_${selectedDate}`];
+                
+                let buttonStyle = 'bg-gray-100 text-gray-600 hover:bg-gray-200';
+                let buttonText = 'Por Marcar';
+
+                if (status === 'presente') {
+                  buttonStyle = 'bg-emerald-600 text-white shadow-sm';
+                  buttonText = 'Presente ✓';
+                } else if (status === 'justificado') {
+                  buttonStyle = 'bg-amber-500 text-white shadow-sm';
+                  buttonText = 'Faltou com Justificação';
+                } else if (status === 'injustificado') {
+                  buttonStyle = 'bg-rose-600 text-white shadow-sm';
+                  buttonText = 'Faltou sem Justificação ✕';
+                } else if (status === 'lesao') {
+                  buttonStyle = 'bg-blue-600 text-white shadow-sm';
+                  buttonText = 'Lesão 🦿';
+                }
+
                 return (
                   <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
                     <div>
@@ -312,11 +331,10 @@ export default function Dashboard({ onLogout }) {
                     </div>
                     <button
                       onClick={() => toggleAttendance(reg.id, selectedDate)}
-                      className={`px-5 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${
-                        isPresent ? 'bg-emerald-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                      }`}
+                      className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${buttonStyle}`}
+                      title="Clique para alternar o estado de presença"
                     >
-                      {isPresent ? 'Presente ✓' : 'Falta'}
+                      {buttonText}
                     </button>
                   </div>
                 );
@@ -328,7 +346,6 @@ export default function Dashboard({ onLogout }) {
         {/* SECÇÃO: EVENTOS */}
         {activeTab === 'events' && (
           <div className="space-y-6">
-            {/* Formulário para criar evento */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <h2 className="font-bold text-gray-800 text-sm">Criar Novo Evento / Competição</h2>
               <form onSubmit={handleCreateEvent} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -377,7 +394,6 @@ export default function Dashboard({ onLogout }) {
               </form>
             </div>
 
-            {/* Listagem de Eventos com botões de Certo / Cruz */}
             <div className="space-y-4">
               <h2 className="font-bold text-gray-800 text-sm">Lista de Eventos e Participação</h2>
               {events.length === 0 ? (
