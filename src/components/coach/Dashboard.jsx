@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import { supabase } from '../../services/supabaseClient';
 
 export default function Dashboard({ onLogout }) {
   const { 
@@ -32,9 +33,36 @@ export default function Dashboard({ onLogout }) {
     setSelectedClasses({ ...selectedClasses, [id]: className });
   };
 
-  const handleAcceptWithClass = (regId) => {
+  const handleAcceptWithClass = async (regId) => {
     const assignedClass = selectedClasses[regId] || 'Formação geral';
-    updateRegistrationStatus(regId, 'accepted', '', assignedClass);
+    
+    // 1. Encontrar o atleta correspondente na lista de pendentes para obter o email e nome
+    const athlete = pendingList.find((r) => r.id === regId);
+    if (!athlete) return;
+
+    try {
+      // 2. Atualizar o estado no contexto/base de dados
+      updateRegistrationStatus(regId, 'accepted', '', assignedClass);
+
+      // 3. Chamar a Edge Function do Supabase para enviar o email com o código de acesso
+      const { data, error } = await supabase.functions.invoke('send-club-email', {
+        body: { 
+          email: athlete.email,           // Garante que o email vai preenchido
+          athleteName: athlete.athleteName, // Nome correto do atleta
+          status: 'accepted',
+          accessCode: athlete.access_code   // Código de acesso gerado
+        }
+      });
+
+      if (error) throw error;
+      
+      console.log("Email enviado com sucesso:", data);
+      alert(`Inscrição aceite e email de acesso enviado para ${athlete.email}!`);
+
+    } catch (err) {
+      console.error("Erro ao enviar email:", err.message);
+      alert("Inscrição aceite, mas ocorreu um erro ao enviar o email: " + err.message);
+    }
   };
 
   const handleCreateEvent = (e) => {
