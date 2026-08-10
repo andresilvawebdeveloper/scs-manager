@@ -4,7 +4,7 @@ import { useApp } from '../../context/AppContext';
 export default function RegistrationWizard({ onBack }) {
   const { addRegistration } = useApp();
   const [step, setStep] = useState(1);
-  const totalSteps = 10;
+  const totalSteps = 11;
   
   const [formData, setFormData] = useState({
     athleteName: '',
@@ -20,8 +20,15 @@ export default function RegistrationWizard({ onBack }) {
     email: '',
     memberNumber: '',
     memberType: 'Atleta',
-    clothingType: 'Fato de Treino',
-    clothingSize: 'M',
+    // Predefinição para "Não pretendo / Não preciso"
+    tracksuitSize: 'Não pretendo / Não preciso',
+    officialTshirtSize: 'Não pretendo / Não preciso',
+    redTshirtSize: 'Não pretendo / Não preciso',
+    yellowTshirtSize: 'Não pretendo / Não preciso',
+    // Dados para as Aulas de Adultos
+    adultClassesInterest: 'Não',
+    adultClassesParticipants: 'Pai',
+    adultClassesPaymentMode: 'Avulso',
     privacyNotified: 'Sim',
     marketingConsent: 'Sim',
     acceptedRegulations: false,
@@ -29,6 +36,20 @@ export default function RegistrationWizard({ onBack }) {
 
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState('');
+
+  // Lista de tamanhos com a nova opção "Não pretendo / Não preciso"
+  const sizeOptions = [
+    'Não pretendo / Não preciso',
+    '7-8',
+    '9-10',
+    '11-12',
+    '13-14',
+    'XS',
+    'S',
+    'M',
+    'L',
+    'XL'
+  ];
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -102,7 +123,15 @@ export default function RegistrationWizard({ onBack }) {
           return false;
         }
         break;
-      case 10:
+      case 9:
+        if (formData.adultClassesInterest === 'Sim') {
+          if (!formData.adultClassesParticipants || !formData.adultClassesPaymentMode) {
+            setError('Por favor, selecione quem irá participar e a modalidade de pagamento.');
+            return false;
+          }
+        }
+        break;
+      case 11:
         if (!formData.acceptedRegulations) {
           setError('Deve confirmar que leu e aceita o Regulamento Geral para submeter a inscrição.');
           return false;
@@ -125,12 +154,9 @@ export default function RegistrationWizard({ onBack }) {
     }
   };
 
-  // SUBMISSÃO FINAL COM A NOVA LÓGICA DO CÓDIGO DE ACESSO
   const handleSubmitFinal = async () => {
-    // 1. Gera o código de acesso de 6 dígitos no momento do registo
     const generatedAccessCode = Math.floor(100000 + Math.random() * 900000).toString();
 
-    // 2. Envia para a base de dados com o estado 'pending' e o código oculto
     const result = await addRegistration({
       ...formData,
       status: 'pending',
@@ -385,41 +411,183 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
+          {/* PASSO 8: SELEÇÃO DE TAMANHOS PARA VESTUÁRIO */}
           {step === 8 && (
-            <div className="space-y-3">
-              <label className="block text-base font-bold text-gray-900">
-                Seleção de Roupa e Merchandising
-              </label>
+            <div className="space-y-4">
               <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Roupa Pretendida</label>
+                <label className="block text-base font-bold text-gray-900 mb-1">
+                  Tamanhos do Equipamento e Vestuário
+                </label>
+                <p className="text-xs text-gray-500 mb-3">
+                  Selecione o tamanho pretendido para cada um dos itens abaixo:
+                </p>
+              </div>
+
+              {/* Fato de Treino */}
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                <label className="block text-xs font-bold text-gray-800 mb-1">
+                  Fato de Treino (Calça e Casaco)
+                </label>
                 <select
-                  name="clothingType"
-                  value={formData.clothingType}
+                  name="tracksuitSize"
+                  value={formData.tracksuitSize}
                   onChange={handleChange}
-                  className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-clubRed focus:outline-none bg-white"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-clubRed focus:outline-none"
                 >
-                  <option value="Fato de Treino">Fato de Treino</option>
-                  <option value="T-Shirt">T-Shirt</option>
+                  {sizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === 'Não pretendo / Não preciso' ? option : `Tamanho ${option}`}
+                    </option>
+                  ))}
                 </select>
               </div>
-              <div>
-                <label className="block text-xs font-medium text-gray-700 mb-1">Tamanho</label>
+
+              {/* T-shirt Oficial */}
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                <label className="block text-xs font-bold text-gray-800 mb-1">
+                  T-shirt Oficial
+                </label>
                 <select
-                  name="clothingSize"
-                  value={formData.clothingSize}
+                  name="officialTshirtSize"
+                  value={formData.officialTshirtSize}
                   onChange={handleChange}
-                  className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-clubRed focus:outline-none bg-white"
+                  className="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-clubRed focus:outline-none"
                 >
-                  <option value="S">S</option>
-                  <option value="M">M</option>
-                  <option value="L">L</option>
-                  <option value="XL">XL</option>
+                  {sizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === 'Não pretendo / Não preciso' ? option : `Tamanho ${option}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* T-shirt Vermelha (Treino) */}
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                <label className="block text-xs font-bold text-gray-800 mb-1">
+                  T-shirt Vermelha (Treino)
+                </label>
+                <select
+                  name="redTshirtSize"
+                  value={formData.redTshirtSize}
+                  onChange={handleChange}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-clubRed focus:outline-none"
+                >
+                  {sizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === 'Não pretendo / Não preciso' ? option : `Tamanho ${option}`}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* T-shirt Amarela (Treino) */}
+              <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
+                <label className="block text-xs font-bold text-gray-800 mb-1">
+                  T-shirt Amarela (Treino)
+                </label>
+                <select
+                  name="yellowTshirtSize"
+                  value={formData.yellowTshirtSize}
+                  onChange={handleChange}
+                  className="w-full p-2.5 border border-gray-300 rounded-lg text-sm bg-white focus:ring-2 focus:ring-clubRed focus:outline-none"
+                >
+                  {sizeOptions.map((option) => (
+                    <option key={option} value={option}>
+                      {option === 'Não pretendo / Não preciso' ? option : `Tamanho ${option}`}
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>
           )}
 
+          {/* PASSO 9: AULAS DE ADULTOS PARA ENCARREGADOS DE EDUCAÇÃO */}
           {step === 9 && (
+            <div className="space-y-4">
+              <div>
+                <label className="block text-base font-bold text-gray-900 mb-1">
+                  Aulas de Adultos para Encarregados
+                </label>
+                <p className="text-xs text-gray-600 leading-relaxed">
+                  O clube disponibiliza aulas para adultos às <strong>segundas-feiras, das 18h15 às 19h00</strong>.
+                </p>
+              </div>
+
+              <div className="p-3.5 bg-gray-50 border border-gray-200 rounded-xl space-y-2">
+                <span className="block text-xs font-bold text-gray-800">
+                  Tem interesse em participar nestas aulas?
+                </span>
+                <div className="flex space-x-6">
+                  <label className="flex items-center space-x-2 text-xs font-semibold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="adultClassesInterest"
+                      value="Sim"
+                      checked={formData.adultClassesInterest === 'Sim'}
+                      onChange={handleChange}
+                      className="text-clubRed focus:ring-clubRed"
+                    />
+                    <span>Sim</span>
+                  </label>
+                  <label className="flex items-center space-x-2 text-xs font-semibold cursor-pointer">
+                    <input
+                      type="radio"
+                      name="adultClassesInterest"
+                      value="Não"
+                      checked={formData.adultClassesInterest === 'Não'}
+                      onChange={handleChange}
+                      className="text-clubRed focus:ring-clubRed"
+                    />
+                    <span>Não</span>
+                  </label>
+                </div>
+              </div>
+
+              {formData.adultClassesInterest === 'Sim' && (
+                <div className="space-y-3 pt-2">
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                      Quem pretende participar?
+                    </label>
+                    <select
+                      name="adultClassesParticipants"
+                      value={formData.adultClassesParticipants}
+                      onChange={handleChange}
+                      className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
+                    >
+                      <option value="Pai">Apenas o Pai</option>
+                      <option value="Mãe">Apenas a Mãe</option>
+                      <option value="Ambos">Ambos (Pai e Mãe)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-gray-800 mb-1">
+                      Modalidade de Pagamento Pretendida:
+                    </label>
+                    <select
+                      name="adultClassesPaymentMode"
+                      value={formData.adultClassesPaymentMode}
+                      onChange={handleChange}
+                      className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
+                    >
+                      <option value="Avulso">Aulas a Avulso — 5€ / aula</option>
+                      <option value="Mensal">Opção Mensal — 15€ / mês</option>
+                    </select>
+                  </div>
+                </div>
+              )}
+
+              <div className="p-3.5 bg-amber-50 border border-amber-200 rounded-xl text-[11px] text-amber-900 leading-relaxed space-y-1">
+                <p className="font-bold">⚠️ Nota Importante sobre as Aulas de Adultos:</p>
+                <p>
+                  Cada aula possui um <strong>limite máximo de inscrições</strong>. É da inteira responsabilidade de cada encarregado de educação efetuar a sua inscrição prévia para garantir a presença no treino pretendido.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {step === 10 && (
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-gray-900">a) Notificação de Privacidade</h3>
               
@@ -489,7 +657,7 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {step === 10 && (
+          {step === 11 && (
             <div className="space-y-4">
               <h3 className="text-sm font-bold text-gray-900">Regulamento Geral do Clube</h3>
               
