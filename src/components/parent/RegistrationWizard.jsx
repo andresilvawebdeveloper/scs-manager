@@ -125,12 +125,21 @@ export default function RegistrationWizard({ onBack }) {
     }
   };
 
-  const handleSubmitFinal = () => {
-    const result = addRegistration(formData);
+  // SUBMISSÃO FINAL COM A NOVA LÓGICA DO CÓDIGO DE ACESSO
+  const handleSubmitFinal = async () => {
+    // 1. Gera o código de acesso de 6 dígitos no momento do registo
+    const generatedAccessCode = Math.floor(100000 + Math.random() * 900000).toString();
+
+    // 2. Envia para a base de dados com o estado 'pending' e o código oculto
+    const result = await addRegistration({
+      ...formData,
+      status: 'pending',
+      access_code: generatedAccessCode,
+    });
+
     setFeedback(result);
   };
 
-  // Ecrã de feedback / sucesso ao submeter a inscrição
   if (feedback) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">

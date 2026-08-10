@@ -36,28 +36,31 @@ export default function Dashboard({ onLogout }) {
   const handleAcceptWithClass = async (regId) => {
     const assignedClass = selectedClasses[regId] || 'Formação geral';
     
-    // 1. Encontrar o atleta correspondente na lista de pendentes para obter o email e nome
+    // 1. Encontrar o atleta correspondente na lista de pendentes
     const athlete = pendingList.find((r) => r.id === regId);
     if (!athlete) return;
 
+    // 2. Recuperar o código de acesso que já foi gerado na inscrição
+    const accessCodeToSend = athlete.access_code || athlete.accessCode;
+
     try {
-      // 2. Atualizar o estado no contexto/base de dados
+      // 3. Atualizar o estado no contexto/base de dados
       updateRegistrationStatus(regId, 'accepted', '', assignedClass);
 
-      // 3. Chamar a Edge Function do Supabase para enviar o email com o código de acesso
+      // 4. Chamar a Edge Function do Supabase enviando o código de acesso guardado
       const { data, error } = await supabase.functions.invoke('send-club-email', {
         body: { 
-          email: athlete.email,           // Garante que o email vai preenchido
-          athleteName: athlete.athleteName, // Nome correto do atleta
+          email: athlete.email || athlete.parentEmail || athlete.parent_email,
+          athleteName: athlete.athleteName || athlete.fullName || athlete.name,
           status: 'accepted',
-          accessCode: athlete.access_code   // Código de acesso gerado
+          accessCode: accessCodeToSend // Envia o código gerado no registo do pai
         }
       });
 
       if (error) throw error;
       
       console.log("Email enviado com sucesso:", data);
-      alert(`Inscrição aceite e email de acesso enviado para ${athlete.email}!`);
+      alert(`Inscrição aceite e email de acesso enviado para ${athlete.email || athlete.parentEmail}!`);
 
     } catch (err) {
       console.error("Erro ao enviar email:", err.message);
@@ -188,7 +191,7 @@ export default function Dashboard({ onLogout }) {
               pendingList.map((reg) => (
                 <div key={reg.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                   <div>
-                    <h3 className="font-bold text-gray-900 text-base">{reg.athleteName}</h3>
+                    <h3 className="font-bold text-gray-900 text-base">{reg.athleteName || reg.fullName}</h3>
                     <p className="text-xs text-gray-500">Nascimento: {reg.birthDate} | Sexo: {reg.gender} | CC: {reg.athleteCC}</p>
                   </div>
 
@@ -256,11 +259,11 @@ export default function Dashboard({ onLogout }) {
               acceptedList.map((reg) => (
                 <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
                   <div className="space-y-1">
-                    <h3 className="font-bold text-gray-900 text-sm">{reg.athleteName}</h3>
+                    <h3 className="font-bold text-gray-900 text-sm">{reg.athleteName || reg.fullName}</h3>
                     <p className="text-xs text-gray-500">
                       Turma: <span className="font-semibold text-clubRed">{reg.assignedClass}</span> | EE: <span className="text-gray-700">{reg.parentName} ({reg.phone})</span>
                     </p>
-                    <p className="text-[11px] text-gray-400 font-mono">Código Acesso: {reg.accessCode}</p>
+                    <p className="text-[11px] text-gray-400 font-mono">Código Acesso: {reg.access_code || reg.accessCode}</p>
                   </div>
                   <div className="flex items-center space-x-2">
                     <span className="px-3 py-1 bg-emerald-50 text-emerald-700 text-xs font-bold rounded-full border border-emerald-200/50">
@@ -268,7 +271,7 @@ export default function Dashboard({ onLogout }) {
                     </span>
                     <button
                       onClick={() => {
-                        if (window.confirm(`Tem certeza que pretende remover o atleta ${reg.athleteName}?`)) {
+                        if (window.confirm(`Tem certeza que pretende remover o atleta ${reg.athleteName || reg.fullName}?`)) {
                           removeAcceptedAthlete(reg.id);
                         }
                       }}
@@ -284,7 +287,7 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: PRESENÇAS (Com os 4 Estados) */}
+        {/* SECÇÃO: PRESENÇAS */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -298,7 +301,7 @@ export default function Dashboard({ onLogout }) {
                   <option value="Formação infantil">Formação infantil</option>
                   <option value="Formação geral">Formação geral</option>
                   <option value="Formação avançada">Formação avançada</option>
-                  <option value="Formação avançada">Pré-Representação</option>
+                  <option value="Pré-Representação">Pré-Representação</option>
                   <option value="Representação">Representação</option>
                 </select>
               </div>
@@ -354,8 +357,8 @@ export default function Dashboard({ onLogout }) {
                 return (
                   <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
                     <div>
-                      <h3 className="font-bold text-gray-900 text-sm">{reg.athleteName}</h3>
-                      <p className="text-xs text-gray-400 font-mono">ID: {reg.accessCode}</p>
+                      <h3 className="font-bold text-gray-900 text-sm">{reg.athleteName || reg.fullName}</h3>
+                      <p className="text-xs text-gray-400 font-mono">ID: {reg.access_code || reg.accessCode}</p>
                     </div>
                     <button
                       onClick={() => toggleAttendance(reg.id, selectedDate)}
@@ -465,7 +468,7 @@ export default function Dashboard({ onLogout }) {
                             const isAttending = eventAttendances[`${ev.id}_${athlete.id}`] || false;
                             return (
                               <div key={athlete.id} className="flex justify-between items-center p-3 bg-gray-50 rounded-xl border border-gray-100">
-                                <span className="text-xs font-medium text-gray-800">{athlete.athleteName}</span>
+                                <span className="text-xs font-medium text-gray-800">{athlete.athleteName || athlete.fullName}</span>
                                 
                                 <div className="flex items-center space-x-2">
                                   <button

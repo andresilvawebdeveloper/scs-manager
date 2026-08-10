@@ -2,9 +2,29 @@ import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+};
+
 serve(async (req) => {
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders });
+  }
+
   try {
-    const { email, athleteName, status, accessCode } = await req.json();
+    const body = await req.json();
+    const email = body.email || body.to;
+    const athleteName = body.athleteName || "Atleta";
+    const status = body.status;
+    const accessCode = body.accessCode || "";
+
+    if (!email) {
+      return new Response(
+        JSON.stringify({ error: "O campo de email é obrigatório e está vazio." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     let subject = "Sport Clube Sanjoanense - Estado da Inscrição";
     let htmlContent = "";
@@ -27,6 +47,7 @@ serve(async (req) => {
       `;
     }
 
+    // Chamada ao Resend
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
@@ -35,15 +56,30 @@ serve(async (req) => {
       },
       body: JSON.stringify({
         from: "SCS Manager <onboarding@resend.dev>",
-        to: [email],
+        to: email,
         subject: subject,
         html: htmlContent,
       }),
     });
 
     const data = await res.json();
-    return new Response(JSON.stringify(data), { headers: { "Content-Type": "application/json" } });
+
+    // SE O RESEND DEVOLVER ERRO, LANÇA EXCEÇÃO PARA O FRONTEND MOSTRAR
+    if (!res.ok) {
+      console.error("Erro devolvido pelo Resend:", data);
+      return new Response(
+        JSON.stringify({ error: data.message || "Erro de validação no Resend", resendDetails: data }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    return new Response(JSON.stringify(data), {
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   } catch (error) {
-    return new Response(JSON.stringify({ error: error.message }), { status: 400, headers: { "Content-Type": "application/json" } });
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 400,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
   }
 });
