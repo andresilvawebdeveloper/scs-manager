@@ -64,13 +64,17 @@ export function AppProvider({ children }) {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) throw error;
-      if (data) setRegistrations(data);
+      if (error) {
+        console.error('Erro no Supabase:', error.message);
+        return;
+      }
+      if (data) {
+        setRegistrations(data);
+      }
     } catch (err) {
-      console.error('Erro ao carregar atletas do Supabase:', err.message);
+      console.error('Erro ao carregar atletas:', err.message);
     }
   };
-
   // Gerador de Código de Acesso no formato SCS-XXXXXX
   const generateSCSCode = () => {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -82,20 +86,8 @@ export function AppProvider({ children }) {
   };
 
   // Submeter nova inscrição no Supabase
+  // Submeter nova inscrição no Supabase
   const addRegistration = async (formData) => {
-    const exists = registrations.some(
-      (reg) =>
-        reg.athleteName?.trim().toLowerCase() === formData.athleteName?.trim().toLowerCase() &&
-        reg.birthDate === formData.birthDate
-    );
-
-    if (exists) {
-      return { 
-        success: false, 
-        message: `O atleta ${formData.athleteName} já se encontra inscrito no sistema.` 
-      };
-    }
-
     const assignedCode = generateSCSCode();
     const newId = Date.now().toString();
 
@@ -103,21 +95,30 @@ export function AppProvider({ children }) {
       id: newId,
       status: 'pending',
       assignedClass: 'Formação geral',
+      assigned_class: 'Formação geral',
       accessCode: assignedCode,
       access_code: assignedCode,
       athleteName: formData.athleteName || '',
+      athlete_name: formData.athleteName || '',
       birthDate: formData.birthDate || '',
+      birth_date: formData.birthDate || '',
       gender: formData.gender || 'Masculino',
       athleteCC: formData.athleteCC || '',
+      athlete_cc: formData.athleteCC || '',
       parentName: formData.parentName || '',
+      parent_name: formData.parentName || '',
       parentCC: formData.parentCC || '',
+      parent_cc: formData.parentCC || '',
       email: formData.email || '',
       phone: formData.phone || '',
       address: formData.address || '',
       postalCode: formData.postalCode || '',
+      postal_code: formData.postalCode || '',
       city: formData.city || '',
       memberNumber: formData.memberNumber || '',
+      member_number: formData.memberNumber || '',
       memberType: formData.memberType || 'Atleta',
+      member_type: formData.memberType || 'Atleta',
       tracksuitSize: formData.tracksuitSize || 'Não pretendo / Não preciso',
       officialTshirtSize: formData.officialTshirtSize || 'Não pretendo / Não preciso',
       redTshirtSize: formData.redTshirtSize || 'Não pretendo / Não preciso',
@@ -133,11 +134,13 @@ export function AppProvider({ children }) {
         .insert([newReg])
         .select();
 
-      if (error) throw error;
+      if (error) {
+        console.error('Erro ao inserir no Supabase:', error.message);
+        return { success: false, message: 'Erro na base de dados: ' + error.message };
+      }
 
-      const insertedRecord = (data && data.length > 0) ? data[0] : newReg;
-
-      setRegistrations((prev) => [insertedRecord, ...prev]);
+      // Recarrega do servidor para garantir sincronização total em todos os ecrãs
+      await fetchRegistrations();
 
       return { 
         success: true, 
@@ -145,7 +148,7 @@ export function AppProvider({ children }) {
         accessCode: assignedCode
       };
     } catch (err) {
-      console.error('Falha ao gravar no Supabase:', err.message);
+      console.error('Falha de ligação:', err.message);
       return { 
         success: false, 
         message: 'Erro ao conectar à base de dados: ' + err.message 

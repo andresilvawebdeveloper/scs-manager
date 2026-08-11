@@ -1,10 +1,11 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../services/supabaseClient';
 
 export default function Dashboard({ onLogout }) {
   const { 
     registrations, 
+    fetchRegistrations,
     updateRegistrationStatus, 
     removeAcceptedAthlete, 
     attendances, 
@@ -21,26 +22,29 @@ export default function Dashboard({ onLogout }) {
     sendMessage
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState('pending'); // 'pending', 'accepted', 'attendance', 'events', 'parentClasses', 'communication'
+  // Forçar o carregamento das inscrições diretamente do Supabase ao abrir o Dashboard
+  useEffect(() => {
+    if (fetchRegistrations) {
+      fetchRegistrations();
+    }
+  }, []);
+
+  const [activeTab, setActiveTab] = useState('pending');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedClassFilter, setSelectedClassFilter] = useState('Formação infantil');
   const [selectedClasses, setSelectedClasses] = useState({});
 
-  // Estado para expandir/colapsar detalhes do atleta na aba 'Atletas'
   const [expandedAthletes, setExpandedAthletes] = useState({});
 
-  // Formulário para novo evento
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
   const [newEventClass, setNewEventClass] = useState('Formação geral');
 
-  // Formulário para nova Aula de Pais
   const [parentClassDate, setParentClassDate] = useState('');
   const [parentClassTime, setParentClassTime] = useState('18:15 - 19:00');
   const [parentClassMaxSeats, setParentClassMaxSeats] = useState(15);
 
-  // Estados para o CHAT
-  const [chatTarget, setChatTarget] = useState('all'); // 'all' ou email de um encarregado
+  const [chatTarget, setChatTarget] = useState('all');
   const [chatText, setChatText] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
 
@@ -62,31 +66,35 @@ export default function Dashboard({ onLogout }) {
 
   const handleAcceptWithClass = async (regId) => {
     const assignedClass = selectedClasses[regId] || 'Formação geral';
-    
     const athlete = pendingList.find((r) => r.id === regId);
     if (!athlete) return;
 
     const accessCodeToSend = athlete.access_code || athlete.accessCode;
 
     try {
-      updateRegistrationStatus(regId, 'accepted', '', assignedClass);
+      await updateRegistrationStatus(regId, 'accepted', '', assignedClass);
 
-      const { data, error } = await supabase.functions.invoke('send-club-email', {
-        body: { 
-          email: athlete.email || athlete.parentEmail || athlete.parent_email,
-          athleteName: athlete.athleteName || athlete.fullName || athlete.name,
-          status: 'accepted',
-          accessCode: accessCodeToSend
-        }
-      });
+      const parentEmail = athlete.email || athlete.parentEmail || athlete.parent_email;
+      const athleteFullName = athlete.athleteName || athlete.athlete_name || athlete.fullName || athlete.name;
 
-      if (error) throw error;
-      
-      alert(`Inscrição aceite e email de acesso enviado para ${athlete.email || athlete.parentEmail}!`);
+      if (parentEmail) {
+        const { error } = await supabase.functions.invoke('send-club-email', {
+          body: { 
+            email: parentEmail,
+            athleteName: athleteFullName,
+            status: 'accepted',
+            accessCode: accessCodeToSend
+          }
+        });
+
+        if (error) throw error;
+      }
+
+      alert(`Inscrição aceite e email de acesso enviado para ${parentEmail || 'o encarregado'}!`);
 
     } catch (err) {
-      console.error("Erro ao enviar email:", err.message);
-      alert("Inscrição aceite, mas ocorreu um erro ao enviar o email: " + err.message);
+      console.error("Erro ao aceitar/enviar email:", err.message);
+      alert("Inscrição aceite, mas ocorreu um erro no processamento do email: " + err.message);
     }
   };
 
@@ -125,17 +133,6 @@ export default function Dashboard({ onLogout }) {
     alert('Aula para Encarregados criada com sucesso!');
   };
 
-  const handleDeleteParentClass = (classId) => {
-    if (window.confirm('Tem certeza que pretende cancelar esta aula de adultos?')) {
-      if (deleteAdultClass) {
-        deleteAdultClass(classId);
-      } else {
-        setLocalAdultClasses(localAdultClasses.filter((c) => c.id !== classId));
-      }
-    }
-  };
-
-  // Enviar Mensagem no CHAT
   const handleSendChatMessage = async (e) => {
     e.preventDefault();
     if (!chatText.trim()) return;
@@ -167,7 +164,6 @@ export default function Dashboard({ onLogout }) {
       }
 
       for (const email of recipients) {
-        // Encontra o atleta correspondente para incluir o nome no email
         const targetAthlete = acceptedList.find(
           (r) => (r.email || r.parentEmail || r.parent_email) === email
         );
@@ -177,7 +173,7 @@ export default function Dashboard({ onLogout }) {
             email,
             subject: '💬 Nova mensagem do Treinador',
             message: chatText,
-            athleteName: targetAthlete ? (targetAthlete.athleteName || targetAthlete.fullName) : 'Clube',
+            athleteName: targetAthlete ? (targetAthlete.athleteName || targetAthlete.athlete_name || targetAthlete.fullName) : 'Clube',
             type: 'chat_notification'
           }
         });
@@ -210,19 +206,28 @@ export default function Dashboard({ onLogout }) {
         <div className="max-w-4xl mx-auto px-4 py-5 flex justify-between items-center">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1 shadow">
-              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
+              <img src="/logo_clube.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Painel do Treinador</h1>
               <p className="text-xs text-red-100 opacity-90">Gestão e Controlo do Clube</p>
             </div>
           </div>
-          <button 
-            onClick={onLogout} 
-            className="text-xs bg-white/15 hover:bg-white/25 text-white border border-white/20 px-4 py-2 rounded-xl font-semibold transition"
-          >
-            Terminar Sessão
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              onClick={() => fetchRegistrations && fetchRegistrations()}
+              className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl font-medium transition"
+              title="Atualizar lista de inscrições"
+            >
+              🔄 Atualizar
+            </button>
+            <button 
+              onClick={onLogout} 
+              className="text-xs bg-white/15 hover:bg-white/25 text-white border border-white/20 px-4 py-2 rounded-xl font-semibold transition"
+            >
+              Terminar Sessão
+            </button>
+          </div>
         </div>
       </header>
 
@@ -272,7 +277,7 @@ export default function Dashboard({ onLogout }) {
       <div className="max-w-4xl mx-auto px-4 mt-6">
         <div className="grid grid-cols-6 gap-1 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-200 text-center">
           <button
-            onClick={() => setActiveTab('pending')}
+            onClick={() => { setActiveTab('pending'); fetchRegistrations && fetchRegistrations(); }}
             className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
               activeTab === 'pending' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
@@ -327,66 +332,84 @@ export default function Dashboard({ onLogout }) {
         {/* SECÇÃO: PENDENTES */}
         {activeTab === 'pending' && (
           <div className="space-y-4">
-            <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes</h2>
+            <div className="flex justify-between items-center">
+              <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes</h2>
+              <button 
+                onClick={() => fetchRegistrations && fetchRegistrations()}
+                className="text-xs text-clubRed font-semibold hover:underline"
+              >
+                🔄 Recarregar Inscrições
+              </button>
+            </div>
+
             {pendingList.length === 0 ? (
               <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 text-center space-y-2">
                 <p className="text-sm font-semibold text-gray-700">Tudo em dia!</p>
                 <p className="text-xs text-gray-400">Não existem inscrições pendentes de momento.</p>
               </div>
             ) : (
-              pendingList.map((reg) => (
-                <div key={reg.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                  <div>
-                    <h3 className="font-bold text-gray-900 text-base">{reg.athleteName || reg.fullName}</h3>
-                    <p className="text-xs text-gray-500">Nascimento: {reg.birthDate} | Sexo: {reg.gender} | CC: {reg.athleteCC}</p>
-                  </div>
+              pendingList.map((reg) => {
+                const name = reg.athleteName || reg.athlete_name || reg.fullName;
+                const birth = reg.birthDate || reg.birth_date;
+                const cc = reg.athleteCC || reg.athlete_cc;
+                const parent = reg.parentName || reg.parent_name;
+                const parentCc = reg.parentCC || reg.parent_cc;
 
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
+                return (
+                  <div key={reg.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                     <div>
-                      <span className="text-gray-400 block mb-0.5">Encarregado de Educação</span>
-                      <strong className="text-gray-800">{reg.parentName}</strong> (CC: {reg.parentCC})
+                      <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                      <p className="text-xs text-gray-500">Nascimento: {birth} | Sexo: {reg.gender} | CC: {cc}</p>
                     </div>
-                    <div>
-                      <span className="text-gray-400 block mb-0.5">Telemóvel</span>
-                      <strong className="text-gray-800">{reg.phone}</strong>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
+                      <div>
+                        <span className="text-gray-400 block mb-0.5">Encarregado de Educação</span>
+                        <strong className="text-gray-800">{parent}</strong> (CC: {parentCc})
+                      </div>
+                      <div>
+                        <span className="text-gray-400 block mb-0.5">Telemóvel e Email</span>
+                        <strong className="text-gray-800">{reg.phone}</strong>
+                        <span className="block text-gray-500">{reg.email}</span>
+                      </div>
+                    </div>
+
+                    <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
+                      <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
+                      <select
+                        value={selectedClasses[reg.id] || 'Formação geral'}
+                        onChange={(e) => handleClassChange(reg.id, e.target.value)}
+                        className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
+                      >
+                        <option value="Formação infantil">Formação infantil - </option>
+                        <option value="Formação geral">Formação geral - </option>
+                        <option value="Formação avançada">Formação avançada - </option>
+                        <option value="Representação">Representação - fIR</option>
+                      </select>
+                    </div>
+
+                    <div className="flex space-x-3">
+                      <button
+                        onClick={() => handleAcceptWithClass(reg.id)}
+                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                      >
+                        Aceitar e Atribuir Turma
+                      </button>
+                      <button
+                        onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
+                        className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                      >
+                        Rejeitar & Eliminar
+                      </button>
                     </div>
                   </div>
-
-                  <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
-                    <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
-                    <select
-                      value={selectedClasses[reg.id] || 'Formação geral'}
-                      onChange={(e) => handleClassChange(reg.id, e.target.value)}
-                      className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
-                    >
-                      <option value="Formação infantil">Formação infantil</option>
-                      <option value="Formação geral">Formação geral</option>
-                      <option value="Formação avançada">Formação avançada</option>
-                      <option value="Representação">Representação</option>
-                    </select>
-                  </div>
-
-                  <div className="flex space-x-3">
-                    <button
-                      onClick={() => handleAcceptWithClass(reg.id)}
-                      className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                    >
-                      Aceitar e Atribuir Turma
-                    </button>
-                    <button
-                      onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
-                      className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                    >
-                      Rejeitar & Eliminar
-                    </button>
-                  </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
 
-        {/* SECÇÃO: ATLETAS ACEITES (COM EXPANSÃO DE DADOS COMPLETOS) */}
+        {/* SECÇÃO: ATLETAS ACEITES */}
         {activeTab === 'accepted' && (
           <div className="space-y-4">
             <h2 className="font-bold text-gray-800 text-sm">Atletas Ativos no Plantel</h2>
@@ -398,16 +421,16 @@ export default function Dashboard({ onLogout }) {
               acceptedList.map((reg) => {
                 const parentEmail = reg.email || reg.parentEmail || reg.parent_email;
                 const isExpanded = expandedAthletes[reg.id] || false;
+                const name = reg.athleteName || reg.athlete_name || reg.fullName;
 
                 return (
                   <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                     
-                    {/* Linha Principal de Informação */}
                     <div className="flex justify-between items-start">
                       <div className="space-y-1">
-                        <h3 className="font-bold text-gray-900 text-base">{reg.athleteName || reg.fullName}</h3>
+                        <h3 className="font-bold text-gray-900 text-base">{name}</h3>
                         <p className="text-xs text-gray-500">
-                          Turma: <span className="font-semibold text-clubRed">{reg.assignedClass || 'Formação geral'}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName} ({reg.phone})</span>
+                          Turma: <span className="font-semibold text-clubRed">{reg.assignedClass || reg.assigned_class || 'Formação geral'}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
                         </p>
                         <p className="text-[11px] text-gray-400 font-mono">
                           Código de Acesso: <span className="font-semibold text-gray-700">{reg.access_code || reg.accessCode || 'N/A'}</span>
@@ -426,7 +449,6 @@ export default function Dashboard({ onLogout }) {
                           <button
                             onClick={() => handleOpenPrivateChat(parentEmail)}
                             className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
-                            title="Conversar com o encarregado"
                           >
                             <span>💬 Chat</span>
                           </button>
@@ -434,86 +456,77 @@ export default function Dashboard({ onLogout }) {
 
                         <button
                           onClick={() => {
-                            if (window.confirm(`Tem certeza que pretende remover o atleta ${reg.athleteName || reg.fullName}?`)) {
+                            if (window.confirm(`Tem certeza que pretende remover o atleta ${name}?`)) {
                               removeAcceptedAthlete(reg.id);
                             }
                           }}
                           className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
-                          title="Remover do clube"
                         >
                           Remover
                         </button>
                       </div>
                     </div>
 
-                    {/* Ficha Completa Expandida */}
                     {isExpanded && (
                       <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
-                        
-                        {/* Dados Pessoais do Atleta */}
                         <div className="space-y-1">
                           <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
                             👤 Dados do Atleta
                           </h4>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
-                            <p><strong>Nascimento:</strong> {reg.birthDate || 'N/D'}</p>
+                            <p><strong>Nascimento:</strong> {reg.birthDate || reg.birth_date || 'N/D'}</p>
                             <p><strong>Sexo:</strong> {reg.gender || 'N/D'}</p>
-                            <p><strong>Cartão de Cidadão:</strong> {reg.athleteCC || 'N/D'}</p>
+                            <p><strong>Cartão de Cidadão:</strong> {reg.athleteCC || reg.athlete_cc || 'N/D'}</p>
                           </div>
                         </div>
 
-                        {/* Encarregado de Educação e Contactos */}
                         <div className="space-y-1">
                           <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
                             👨‍👩‍👧 Encarregado de Educação & Contactos
                           </h4>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                            <p><strong>Nome do EE:</strong> {reg.parentName || 'N/D'}</p>
-                            <p><strong>CC do EE:</strong> {reg.parentCC || 'N/D'}</p>
+                            <p><strong>Nome do EE:</strong> {reg.parentName || reg.parent_name || 'N/D'}</p>
+                            <p><strong>CC do EE:</strong> {reg.parentCC || reg.parent_cc || 'N/D'}</p>
                             <p><strong>Email:</strong> {parentEmail || 'N/D'}</p>
                             <p><strong>Telemóvel:</strong> {reg.phone || 'N/D'}</p>
                             <p className="sm:col-span-2">
-                              <strong>Morada:</strong> {reg.address || 'N/D'}, {reg.postalCode} {reg.city}
+                              <strong>Morada:</strong> {reg.address || 'N/D'}, {reg.postalCode || reg.postal_code} {reg.city}
                             </p>
                           </div>
                         </div>
 
-                        {/* Dados de Sócio */}
                         <div className="space-y-1">
                           <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
                             💳 Estatuto de Sócio
                           </h4>
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                            <p><strong>Nº de Sócio:</strong> {reg.memberNumber || 'N/D'}</p>
-                            <p><strong>Sócio Titular:</strong> {reg.memberType || 'Atleta'}</p>
+                            <p><strong>Nº de Sócio:</strong> {reg.memberNumber || reg.member_number || 'N/D'}</p>
+                            <p><strong>Sócio Titular:</strong> {reg.memberType || reg.member_type || 'Atleta'}</p>
                           </div>
                         </div>
 
-                        {/* Tamanhos do Equipamento */}
                         <div className="space-y-1">
                           <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
                             🎽 Equipamento e Vestuário
                           </h4>
                           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-gray-700">
-                            <p><strong>Fato de Treino:</strong> {reg.tracksuitSize || 'Não pretendo'}</p>
-                            <p><strong>T-shirt Oficial:</strong> {reg.officialTshirtSize || 'Não pretendo'}</p>
-                            <p><strong>T-shirt Vermelha:</strong> {reg.redTshirtSize || 'Não pretendo'}</p>
-                            <p><strong>T-shirt Amarela:</strong> {reg.yellowTshirtSize || 'Não pretendo'}</p>
+                            <p><strong>Fato de Treino:</strong> {reg.tracksuitSize || reg.tracksuit_size || 'Não pretendo'}</p>
+                            <p><strong>T-shirt Oficial:</strong> {reg.officialTshirtSize || reg.official_tshirt_size || 'Não pretendo'}</p>
+                            <p><strong>T-shirt Vermelha:</strong> {reg.redTshirtSize || reg.red_tshirt_size || 'Não pretendo'}</p>
+                            <p><strong>T-shirt Amarela:</strong> {reg.yellowTshirtSize || reg.yellow_tshirt_size || 'Não pretendo'}</p>
                           </div>
                         </div>
 
-                        {/* Aulas de Adultos */}
                         <div className="space-y-1">
                           <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
                             🤸 Aulas para Encarregados
                           </h4>
                           <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
-                            <p><strong>Interesse:</strong> {reg.adultClassesInterest || 'Não'}</p>
-                            <p><strong>Participantes:</strong> {reg.adultClassesParticipants || 'N/D'}</p>
-                            <p><strong>Pagamento:</strong> {reg.adultClassesPaymentMode || 'N/D'}</p>
+                            <p><strong>Interesse:</strong> {reg.adultClassesInterest || reg.adult_classes_interest || 'Não'}</p>
+                            <p><strong>Participantes:</strong> {reg.adultClassesParticipants || reg.adult_classes_participants || 'N/D'}</p>
+                            <p><strong>Pagamento:</strong> {reg.adultClassesPaymentMode || reg.adult_classes_payment_mode || 'N/D'}</p>
                           </div>
                         </div>
-
                       </div>
                     )}
 
@@ -555,7 +568,7 @@ export default function Dashboard({ onLogout }) {
 
             {(() => {
               const athletesInSelectedClass = acceptedList.filter(
-                (a) => (a.assignedClass || 'Formação geral') === selectedClassFilter
+                (a) => (a.assignedClass || a.assigned_class || 'Formação geral') === selectedClassFilter
               );
 
               if (athletesInSelectedClass.length === 0) {
@@ -585,7 +598,7 @@ export default function Dashboard({ onLogout }) {
                 return (
                   <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
                     <div>
-                      <h3 className="font-bold text-gray-900 text-sm">{reg.athleteName || reg.fullName}</h3>
+                      <h3 className="font-bold text-gray-900 text-sm">{reg.athleteName || reg.athlete_name || reg.fullName}</h3>
                     </div>
                     <button
                       onClick={() => toggleAttendance(reg.id, selectedDate)}
@@ -634,12 +647,10 @@ export default function Dashboard({ onLogout }) {
                     onChange={(e) => setNewEventClass(e.target.value)}
                     className="w-full p-2.5 border rounded-xl text-xs bg-white"
                   >
-                    <option value="Formação infantil">Formação infantil - Spark</option>
-                    <option value="Formação geral">Formação geral - Flame</option>
-                    <option value="Formação avançada">Formação avançada - Fusion </option>
-                    <option value="Representação">Pré-Representação - Thunder</option>
-                    <option value="Representação">Representação - Firestorm</option>
-                    <option value="Representação">Adultos - Stormfit</option>
+                    <option value="Formação infantil">Formação infantil</option>
+                    <option value="Formação geral">Formação geral</option>
+                    <option value="Formação avançada">Formação avançada</option>
+                    <option value="Representação">Representação</option>
                   </select>
                 </div>
                 <div className="sm:col-span-3">
@@ -704,11 +715,10 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: CHAT ESTILO WHATSAPP */}
+        {/* SECÇÃO: CHAT */}
         {activeTab === 'communication' && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col h-[500px] overflow-hidden">
             
-            {/* Header do Chat / Seleção de Conversa */}
             <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
               <div>
                 <span className="text-[10px] font-bold text-gray-400 block uppercase">Conversar Com:</span>
@@ -720,9 +730,10 @@ export default function Dashboard({ onLogout }) {
                   <option value="all">📢 Canal Geral (Todos os Pais)</option>
                   {acceptedList.map((athlete) => {
                     const email = athlete.email || athlete.parentEmail || athlete.parent_email;
+                    const name = athlete.athleteName || athlete.athlete_name || athlete.fullName;
                     return (
                       <option key={athlete.id} value={email}>
-                        👤 EE: {athlete.parentName} ({athlete.athleteName || athlete.fullName})
+                        👤 EE: {athlete.parentName || athlete.parent_name} ({name})
                       </option>
                     );
                   })}
@@ -730,7 +741,6 @@ export default function Dashboard({ onLogout }) {
               </div>
             </div>
 
-            {/* Balões de Mensagem (Área de Scroll) */}
             <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50">
               {currentChatMessages.length === 0 ? (
                 <div className="text-center py-12 text-xs text-gray-400">
@@ -765,7 +775,6 @@ export default function Dashboard({ onLogout }) {
               )}
             </div>
 
-            {/* Input para Escrever Mensagem */}
             <form onSubmit={handleSendChatMessage} className="p-3 bg-white border-t border-gray-200 flex space-x-2">
               <input
                 type="text"
