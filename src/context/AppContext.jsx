@@ -1,45 +1,39 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { supabase } from '../services/supabaseClient';
 
 const AppContext = createContext();
 
 export function AppProvider({ children }) {
-  const [registrations, setRegistrations] = useState(() => {
-    const saved = localStorage.getItem('scs_registrations');
-    return saved ? JSON.parse(saved) : [];
-  });
-
+  const [registrations, setRegistrations] = useState([]);
   const [attendances, setAttendances] = useState(() => {
     const saved = localStorage.getItem('scs_attendances');
     return saved ? JSON.parse(saved) : {};
   });
 
-  // Estado para os Eventos do Clube
   const [events, setEvents] = useState(() => {
     const saved = localStorage.getItem('scs_events');
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Estado para o controlo de presença/participação nos eventos
   const [eventAttendances, setEventAttendances] = useState(() => {
     const saved = localStorage.getItem('scs_event_attendances');
     return saved ? JSON.parse(saved) : {};
   });
 
-  // Estado para Aulas de Pais/Adultos
   const [adultClasses, setAdultClasses] = useState(() => {
     const saved = localStorage.getItem('scs_adult_classes');
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Estado para Mensagens do Chat
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem('scs_messages');
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Carregar atletas do Supabase ao iniciar a app
   useEffect(() => {
-    localStorage.setItem('scs_registrations', JSON.stringify(registrations));
-  }, [registrations]);
+    fetchRegistrations();
+  }, []);
 
   useEffect(() => {
     localStorage.setItem('scs_attendances', JSON.stringify(attendances));
@@ -61,7 +55,17 @@ export function AppProvider({ children }) {
     localStorage.setItem('scs_messages', JSON.stringify(messages));
   }, [messages]);
 
-  // Função utilitária para gerar código de acesso
+  // Função para procurar todos os atletas na base de dados
+  const fetchRegistrations = async () => {
+    try {
+      const { data, error } = await supabase.from('registrations').select('*');
+      if (error) throw error;
+      if (data) setRegistrations(data);
+    } catch (err) {
+      console.error('Erro ao carregar atletas do Supabase:', err.message);
+    }
+  };
+
   const generateSCSCode = () => {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let randomPart = '';
@@ -71,128 +75,110 @@ export function AppProvider({ children }) {
     return `SCS-${randomPart}`;
   };
 
-  // Submeter nova inscrição
-  const addRegistration = (formData) => {
-    const exists = registrations.some(
-      (reg) =>
-        reg.athleteName?.trim().toLowerCase() === formData.athleteName?.trim().toLowerCase() &&
-        reg.birthDate === formData.birthDate
-    );
-
-    if (exists) {
-      return { 
-        success: false, 
-        message: `O atleta ${formData.athleteName} já se encontra inscrito no sistema.` 
-      };
-    }
-
+  // Submeter nova inscrição na nuvem
+  const addRegistration = async (formData) => {
     const assignedCode = generateSCSCode();
+    const newId = Date.now().toString();
 
     const newReg = {
-      id: Date.now().toString(),
+      id: newId,
       ...formData,
-      status: 'pending', // pending, accepted, rejected
+      status: 'pending',
       accessCode: assignedCode,
       access_code: assignedCode,
-      createdAt: new Date().toISOString(),
     };
 
-    setRegistrations((prev) => {
-      const updated = [newReg, ...prev];
-      localStorage.setItem('scs_registrations', JSON.stringify(updated));
-      return updated;
-    });
+    try {
+      const { error } = await supabase.from('registrations').insert([newReg]);
+      if (error) throw error;
 
-    return { 
-      success: true, 
-      message: 'Inscrição submetida com sucesso! Aguarde a validação do treinador.',
-      accessCode: assignedCode
-    };
-  };
-
-  // Treinador aceita ou rejeita
-  const updateRegistrationStatus = (id, status, reason = '', assignedClass = 'Formação geral') => {
-    if (status === 'rejected') {
-      setRegistrations((prev) => {
-        const updated = prev.filter((reg) => reg.id !== id);
-        localStorage.setItem('scs_registrations', JSON.stringify(updated));
-        return updated;
-      });
-    } else {
-      setRegistrations((prev) => {
-        const updated = prev.map((reg) => {
-          if (reg.id === id) {
-            const finalCode = reg.accessCode || reg.access_code || generateSCSCode();
-            return { 
-              ...reg, 
-              status: 'accepted', 
-              accessCode: finalCode,
-              access_code: finalCode,
-              rejectionReason: reason,
-              assignedClass: assignedClass 
-            };
-          }
-          return reg;
-        });
-
-        // Gravação síncrona imediata no localStorage
-        localStorage.setItem('scs_registrations', JSON.stringify(updated));
-        return updated;
-      });
+      setRegistrations((prev) => [newReg, ...prev]);
+      return { 
+        success: true, 
+        message: 'Inscrição submetida com sucesso! Aguarde a validação do treinador.',
+        accessCode: assignedCode
+      };
+    } catch (err) {
+      console.error('Erro ao salvar inscrição no Supabase:', err.message);
+      return { success: false, message: 'Erro ao conectar ao servidor: ' + err.message };
     }
   };
 
-  // Remover atleta aceite do clube
-  const removeAcceptedAthlete = (id) => {
-    setRegistrations((prev) => {
-      const updated = prev.filter((reg) => reg.id !== id);
-      localStorage.setItem('scs_registrations', JSON.stringify(updated));
-      return updated;
-    });
+  // Treinador aceita ou rejeita no Supabase
+  const updateRegistrationStatus = async (id, status, reason = '', assignedClass = 'Formação geral') => {
+    if (status === 'rejected') {
+      try {
+        await supabase.from('registrations').delete().eq('id', id);
+        setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
+      } catch (err) {
+        console.error('Erro ao rejeitar:', err);
+      }
+    } else {
+      const athlete = registrations.find((r) => r.id === id);
+      const finalCode = athlete?.accessCode || athlete?.access_code || generateSCSCode();
+
+      const updates = {
+        status: 'accepted',
+        assignedClass: assignedClass,
+        accessCode: finalCode,
+        access_code: finalCode,
+      };
+
+      try {
+        const { error } = await supabase.from('registrations').update(updates).eq('id', id);
+        if (error) throw error;
+
+        setRegistrations((prev) =>
+          prev.map((reg) => (reg.id === id ? { ...reg, ...updates } : reg))
+        );
+      } catch (err) {
+        console.error('Erro ao atualizar no Supabase:', err.message);
+      }
+    }
   };
 
-  // Encarregado de Educação atualiza dados
-  const updateRegistrationByParent = (id, updatedData) => {
-    setRegistrations((prev) => {
-      const updated = prev.map((reg) => {
-        if (reg.id === id) {
-          return {
-            ...reg,
-            ...updatedData,
-            status: 'accepted',
-          };
-        }
-        return reg;
-      });
-      localStorage.setItem('scs_registrations', JSON.stringify(updated));
-      return updated;
-    });
+  // Remover atleta aceite
+  const removeAcceptedAthlete = async (id) => {
+    try {
+      await supabase.from('registrations').delete().eq('id', id);
+      setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
+    } catch (err) {
+      console.error('Erro ao remover atleta:', err.message);
+    }
   };
 
-  // Login do Encarregado de Educação via Código de Acesso
+  // Encarregado atualiza dados
+  const updateRegistrationByParent = async (id, updatedData) => {
+    try {
+      const { error } = await supabase.from('registrations').update(updatedData).eq('id', id);
+      if (error) throw error;
+
+      setRegistrations((prev) =>
+        prev.map((reg) => (reg.id === id ? { ...reg, ...updatedData } : reg))
+      );
+    } catch (err) {
+      console.error('Erro ao atualizar dados pelo pai:', err.message);
+    }
+  };
+
+  // Login do Encarregado via Supabase
   const loginParentByCode = (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
     }
 
-    // Normalização: Converte para maiúsculas e remove tudo o que não for letras e números (elimina hífens e espaços)
     const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
-    // Combina os dados do localStorage e do estado local para garantir que nada se perde
-    const stored = JSON.parse(localStorage.getItem('scs_registrations') || '[]');
-    const sourceList = stored.length > 0 ? stored : registrations;
-
-    const registration = sourceList.find((reg) => {
-      const dbCodeRaw = reg.accessCode || reg.access_code || reg.access_Code || '';
+    const registration = registrations.find((reg) => {
+      const dbCodeRaw = reg.accessCode || reg.access_code || '';
       const cleanDbCode = dbCodeRaw.toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      
       return cleanDbCode === cleanInput && cleanDbCode.length > 0;
     });
 
     if (!registration) {
       return { 
         success: false, 
-        message: 'Código de acesso não encontrado. Confirme se escreveu exatamente como aparece no painel do treinador.' 
+        message: 'Código de acesso não encontrado no sistema.' 
       };
     }
 
@@ -260,7 +246,7 @@ export function AppProvider({ children }) {
     }));
   };
 
-  // Gestão das Aulas de Adultos
+  // Aulas Adultos
   const addAdultClass = (classData) => {
     setAdultClasses((prev) => [classData, ...prev]);
   };
@@ -303,7 +289,7 @@ export function AppProvider({ children }) {
     );
   };
 
-  // Enviar Mensagem no Chat
+  // Chat
   const sendMessage = (msgObj) => {
     setMessages((prev) => [...prev, msgObj]);
   };
@@ -331,7 +317,8 @@ export function AppProvider({ children }) {
         deleteAdultClass,
         enrollInAdultClass,
         cancelAdultClassEnrollment,
-        sendMessage
+        sendMessage,
+        fetchRegistrations
       }}
     >
       {children}
