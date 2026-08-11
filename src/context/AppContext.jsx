@@ -5,6 +5,7 @@ const AppContext = createContext();
 
 export function AppProvider({ children }) {
   const [registrations, setRegistrations] = useState([]);
+  
   const [attendances, setAttendances] = useState(() => {
     const saved = localStorage.getItem('scs_attendances');
     return saved ? JSON.parse(saved) : {};
@@ -30,7 +31,7 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Carregar atletas do Supabase ao iniciar a app
+  // Carregar lista de atletas/inscrições do Supabase ao iniciar a aplicação
   useEffect(() => {
     fetchRegistrations();
   }, []);
@@ -55,10 +56,14 @@ export function AppProvider({ children }) {
     localStorage.setItem('scs_messages', JSON.stringify(messages));
   }, [messages]);
 
-  // Função para procurar todos os atletas na base de dados
+  // Função para procurar todas as inscrições no Supabase
   const fetchRegistrations = async () => {
     try {
-      const { data, error } = await supabase.from('registrations').select('*');
+      const { data, error } = await supabase
+        .from('registrations')
+        .select('*')
+        .order('created_at', { ascending: false });
+
       if (error) throw error;
       if (data) setRegistrations(data);
     } catch (err) {
@@ -66,6 +71,7 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Gerador de Código de Acesso no formato SCS-XXXXXX
   const generateSCSCode = () => {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let randomPart = '';
@@ -75,43 +81,87 @@ export function AppProvider({ children }) {
     return `SCS-${randomPart}`;
   };
 
-  // Submeter nova inscrição na nuvem
+  // Submeter nova inscrição no Supabase
   const addRegistration = async (formData) => {
+    const exists = registrations.some(
+      (reg) =>
+        reg.athleteName?.trim().toLowerCase() === formData.athleteName?.trim().toLowerCase() &&
+        reg.birthDate === formData.birthDate
+    );
+
+    if (exists) {
+      return { 
+        success: false, 
+        message: `O atleta ${formData.athleteName} já se encontra inscrito no sistema.` 
+      };
+    }
+
     const assignedCode = generateSCSCode();
     const newId = Date.now().toString();
 
     const newReg = {
       id: newId,
-      ...formData,
       status: 'pending',
+      assignedClass: 'Formação geral',
       accessCode: assignedCode,
       access_code: assignedCode,
+      athleteName: formData.athleteName || '',
+      birthDate: formData.birthDate || '',
+      gender: formData.gender || 'Masculino',
+      athleteCC: formData.athleteCC || '',
+      parentName: formData.parentName || '',
+      parentCC: formData.parentCC || '',
+      email: formData.email || '',
+      phone: formData.phone || '',
+      address: formData.address || '',
+      postalCode: formData.postalCode || '',
+      city: formData.city || '',
+      memberNumber: formData.memberNumber || '',
+      memberType: formData.memberType || 'Atleta',
+      tracksuitSize: formData.tracksuitSize || 'Não pretendo / Não preciso',
+      officialTshirtSize: formData.officialTshirtSize || 'Não pretendo / Não preciso',
+      redTshirtSize: formData.redTshirtSize || 'Não pretendo / Não preciso',
+      yellowTshirtSize: formData.yellowTshirtSize || 'Não pretendo / Não preciso',
+      adultClassesInterest: formData.adultClassesInterest || 'Não',
+      adultClassesParticipants: formData.adultClassesParticipants || 'Pai',
+      adultClassesPaymentMode: formData.adultClassesPaymentMode || 'Avulso',
     };
 
     try {
-      const { error } = await supabase.from('registrations').insert([newReg]);
+      const { data, error } = await supabase
+        .from('registrations')
+        .insert([newReg])
+        .select();
+
       if (error) throw error;
 
-      setRegistrations((prev) => [newReg, ...prev]);
+      const insertedRecord = (data && data.length > 0) ? data[0] : newReg;
+
+      setRegistrations((prev) => [insertedRecord, ...prev]);
+
       return { 
         success: true, 
         message: 'Inscrição submetida com sucesso! Aguarde a validação do treinador.',
         accessCode: assignedCode
       };
     } catch (err) {
-      console.error('Erro ao salvar inscrição no Supabase:', err.message);
-      return { success: false, message: 'Erro ao conectar ao servidor: ' + err.message };
+      console.error('Falha ao gravar no Supabase:', err.message);
+      return { 
+        success: false, 
+        message: 'Erro ao conectar à base de dados: ' + err.message 
+      };
     }
   };
 
-  // Treinador aceita ou rejeita no Supabase
+  // Treinador aceita ou rejeita
   const updateRegistrationStatus = async (id, status, reason = '', assignedClass = 'Formação geral') => {
     if (status === 'rejected') {
       try {
-        await supabase.from('registrations').delete().eq('id', id);
+        const { error } = await supabase.from('registrations').delete().eq('id', id);
+        if (error) throw error;
         setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
       } catch (err) {
-        console.error('Erro ao rejeitar:', err);
+        console.error('Erro ao rejeitar no Supabase:', err.message);
       }
     } else {
       const athlete = registrations.find((r) => r.id === id);
@@ -132,22 +182,23 @@ export function AppProvider({ children }) {
           prev.map((reg) => (reg.id === id ? { ...reg, ...updates } : reg))
         );
       } catch (err) {
-        console.error('Erro ao atualizar no Supabase:', err.message);
+        console.error('Erro ao aceitar atleta no Supabase:', err.message);
       }
     }
   };
 
-  // Remover atleta aceite
+  // Remover atleta do plantel
   const removeAcceptedAthlete = async (id) => {
     try {
-      await supabase.from('registrations').delete().eq('id', id);
+      const { error } = await supabase.from('registrations').delete().eq('id', id);
+      if (error) throw error;
       setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
     } catch (err) {
       console.error('Erro ao remover atleta:', err.message);
     }
   };
 
-  // Encarregado atualiza dados
+  // Encarregado de Educação atualiza os seus dados
   const updateRegistrationByParent = async (id, updatedData) => {
     try {
       const { error } = await supabase.from('registrations').update(updatedData).eq('id', id);
@@ -157,11 +208,11 @@ export function AppProvider({ children }) {
         prev.map((reg) => (reg.id === id ? { ...reg, ...updatedData } : reg))
       );
     } catch (err) {
-      console.error('Erro ao atualizar dados pelo pai:', err.message);
+      console.error('Erro ao atualizar dados pelo encarregado:', err.message);
     }
   };
 
-  // Login do Encarregado via Supabase
+  // Login do Encarregado de Educação via Código de Acesso
   const loginParentByCode = (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
@@ -178,7 +229,7 @@ export function AppProvider({ children }) {
     if (!registration) {
       return { 
         success: false, 
-        message: 'Código de acesso não encontrado no sistema.' 
+        message: 'Código de acesso não encontrado. Confirme se escreveu exatamente como aparece no painel do treinador.' 
       };
     }
 
@@ -208,7 +259,7 @@ export function AppProvider({ children }) {
     return { success: false, message: "Email ou password incorretos." };
   };
 
-  // Presenças
+  // Marcação de Presenças
   const toggleAttendance = (athleteId, date) => {
     const key = `${athleteId}_${date}`;
     const current = attendances[key];
@@ -225,7 +276,7 @@ export function AppProvider({ children }) {
     }));
   };
 
-  // Eventos
+  // Eventos do Clube
   const addEvent = (eventData) => {
     const newEvent = {
       id: Date.now().toString(),
@@ -246,7 +297,7 @@ export function AppProvider({ children }) {
     }));
   };
 
-  // Aulas Adultos
+  // Gestão de Aulas de Adultos
   const addAdultClass = (classData) => {
     setAdultClasses((prev) => [classData, ...prev]);
   };
@@ -289,7 +340,7 @@ export function AppProvider({ children }) {
     );
   };
 
-  // Chat
+  // Enviar Mensagem no Chat
   const sendMessage = (msgObj) => {
     setMessages((prev) => [...prev, msgObj]);
   };

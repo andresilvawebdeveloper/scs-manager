@@ -20,12 +20,10 @@ export default function RegistrationWizard({ onBack }) {
     email: '',
     memberNumber: '',
     memberType: 'Atleta',
-    // Predefinição para "Não pretendo / Não preciso"
     tracksuitSize: 'Não pretendo / Não preciso',
     officialTshirtSize: 'Não pretendo / Não preciso',
     redTshirtSize: 'Não pretendo / Não preciso',
     yellowTshirtSize: 'Não pretendo / Não preciso',
-    // Dados para as Aulas de Adultos
     adultClassesInterest: 'Não',
     adultClassesParticipants: 'Pai',
     adultClassesPaymentMode: 'Avulso',
@@ -37,7 +35,6 @@ export default function RegistrationWizard({ onBack }) {
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState('');
 
-  // Lista de tamanhos com a opção "Não pretendo / Não preciso"
   const sizeOptions = [
     'Não pretendo / Não preciso',
     '7-8',
@@ -155,15 +152,7 @@ export default function RegistrationWizard({ onBack }) {
   };
 
   const handleSubmitFinal = async () => {
-    // Código de acesso gerado a começar obrigatoriamente por SCS-
-    const generatedAccessCode = "SCS-" + Math.floor(100000 + Math.random() * 900000).toString();
-
-    const result = await addRegistration({
-      ...formData,
-      status: 'pending',
-      access_code: generatedAccessCode,
-    });
-
+    const result = await addRegistration(formData);
     setFeedback(result);
   };
 
@@ -412,7 +401,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PASSO 8: SELEÇÃO DE TAMANHOS PARA VESTUÁRIO */}
           {step === 8 && (
             <div className="space-y-4">
               <div>
@@ -424,7 +412,6 @@ export default function RegistrationWizard({ onBack }) {
                 </p>
               </div>
 
-              {/* Fato de Treino */}
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
                 <label className="block text-xs font-bold text-gray-800 mb-1">
                   Fato de Treino (Calça e Casaco)
@@ -443,7 +430,6 @@ export default function RegistrationWizard({ onBack }) {
                 </select>
               </div>
 
-              {/* T-shirt Oficial */}
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
                 <label className="block text-xs font-bold text-gray-800 mb-1">
                   T-shirt Oficial
@@ -462,7 +448,6 @@ export default function RegistrationWizard({ onBack }) {
                 </select>
               </div>
 
-              {/* T-shirt Vermelha (Treino) */}
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
                 <label className="block text-xs font-bold text-gray-800 mb-1">
                   T-shirt Vermelha (Treino)
@@ -481,7 +466,6 @@ export default function RegistrationWizard({ onBack }) {
                 </select>
               </div>
 
-              {/* T-shirt Amarela (Treino) */}
               <div className="p-3 bg-gray-50 border border-gray-200 rounded-xl">
                 <label className="block text-xs font-bold text-gray-800 mb-1">
                   T-shirt Amarela (Treino)
@@ -502,7 +486,6 @@ export default function RegistrationWizard({ onBack }) {
             </div>
           )}
 
-          {/* PASSO 9: AULAS DE ADULTOS PARA ENCARREGADOS DE EDUCAÇÃO */}
           {step === 9 && (
             <div className="space-y-4">
               <div>
