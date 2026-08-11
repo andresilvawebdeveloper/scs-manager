@@ -11,6 +11,7 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
     e.preventDefault();
     if (!code.trim()) return;
 
+    // Tenta efetuar o login através do AppContext
     const result = loginParentByCode(code.trim());
     if (result.success) {
       onLoginWithCode(result.registration);
@@ -100,7 +101,9 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
               </div>
 
               {error && (
-                <p className="text-xs text-clubRed font-semibold mt-1">{error}</p>
+                <div className="bg-rose-50 border border-rose-200 p-3 rounded-xl">
+                  <p className="text-xs text-rose-700 font-semibold">{error}</p>
+                </div>
               )}
 
               <button

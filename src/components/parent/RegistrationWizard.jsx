@@ -37,7 +37,7 @@ export default function RegistrationWizard({ onBack }) {
   const [feedback, setFeedback] = useState(null);
   const [error, setError] = useState('');
 
-  // Lista de tamanhos com a nova opção "Não pretendo / Não preciso"
+  // Lista de tamanhos com a opção "Não pretendo / Não preciso"
   const sizeOptions = [
     'Não pretendo / Não preciso',
     '7-8',
@@ -155,7 +155,8 @@ export default function RegistrationWizard({ onBack }) {
   };
 
   const handleSubmitFinal = async () => {
-    const generatedAccessCode = Math.floor(100000 + Math.random() * 900000).toString();
+    // Código de acesso gerado a começar obrigatoriamente por SCS-
+    const generatedAccessCode = "SCS-" + Math.floor(100000 + Math.random() * 900000).toString();
 
     const result = await addRegistration({
       ...formData,
