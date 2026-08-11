@@ -490,10 +490,10 @@ export default function RegistrationWizard({ onBack }) {
             <div className="space-y-4">
               <div>
                 <label className="block text-base font-bold text-gray-900 mb-1">
-                  Aulas de Adultos para Encarregados
+                  Aulas de Adultos
                 </label>
                 <p className="text-xs text-gray-600 leading-relaxed">
-                  O clube disponibiliza aulas para adultos às <strong>segundas-feiras, das 18h15 às 19h00</strong>.
+                  O clube disponibiliza aulas para adultos às <strong>segundas-feiras, das 19h15 às 20h00</strong>.
                 </p>
               </div>
 
