@@ -1,0 +1,17 @@
+{
+  "short_name": "SCS Manager",
+  "name": "SCS Manager - Clube de Ginástica",
+  "icons": [
+    {
+      "src": "/logo_clube.png",
+      "type": "image/png",
+      "sizes": "192x192 512x512",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#b91c1c",
+  "theme_color": "#b91c1c",
+  "display": "standalone",
+  "orientation": "portrait"
+}
