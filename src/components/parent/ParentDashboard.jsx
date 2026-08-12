@@ -8,11 +8,12 @@ export default function ParentDashboard({ registration, onLogout }) {
     adultClasses, 
     enrollInAdultClass, 
     cancelAdultClassEnrollment,
+    events,
     messages,
     sendMessage
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'chat', 'adultClasses'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'events', 'chat', 'adultClasses'
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState(registration);
   const [successMsg, setSuccessMsg] = useState('');
@@ -22,6 +23,22 @@ export default function ParentDashboard({ registration, onLogout }) {
   const [isSendingChat, setIsSendingChat] = useState(false);
 
   const parentEmail = registration.email || registration.parentEmail || registration.parent_email;
+
+  // Turma atribuída ao filho/atleta
+  const athleteClass = registration.assignedClass || registration.assigned_class || 'Formação geral';
+
+  // Filtrar eventos associados à turma do atleta
+  const allEventsList = events || [];
+  const myClassEvents = allEventsList.filter((event) => {
+    const targetClasses = event.targetClasses || [event.targetClass];
+    // Se não tiver turmas especificadas, exibe por defeito ou compara diretamente
+    if (!targetClasses || targetClasses.length === 0) return true;
+    
+    // Verifica se a turma do atleta está incluída na lista do evento
+    return targetClasses.some(tc => 
+      tc && tc.toLowerCase().trim() === athleteClass.toLowerCase().trim()
+    );
+  });
 
   // Filtrar conversas: Mensagens do Canal Geral + Mensagens Privadas deste pai
   const allMessagesList = messages || [];
@@ -124,26 +141,34 @@ export default function ParentDashboard({ registration, onLogout }) {
 
       {/* Navegação por Abas */}
       <div className="max-w-2xl mx-auto px-4 mt-6">
-        <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-2xl shadow-sm border border-gray-200 text-center">
+        <div className="grid grid-cols-4 gap-1 bg-white p-1 rounded-2xl shadow-sm border border-gray-200 text-center">
           <button
             onClick={() => setActiveTab('overview')}
-            className={`py-2 text-xs font-bold rounded-xl transition ${
+            className={`py-2 text-[11px] sm:text-xs font-bold rounded-xl transition ${
               activeTab === 'overview' ? 'bg-clubRed text-white shadow' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
             Ficha Atleta
           </button>
           <button
+            onClick={() => setActiveTab('events')}
+            className={`py-2 text-[11px] sm:text-xs font-bold rounded-xl transition ${
+              activeTab === 'events' ? 'bg-clubRed text-white shadow' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Eventos 🏆
+          </button>
+          <button
             onClick={() => setActiveTab('chat')}
-            className={`py-2 text-xs font-bold rounded-xl transition ${
+            className={`py-2 text-[11px] sm:text-xs font-bold rounded-xl transition ${
               activeTab === 'chat' ? 'bg-clubRed text-white shadow' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            Chat Direto 💬
+            Chat 💬
           </button>
           <button
             onClick={() => setActiveTab('adultClasses')}
-            className={`py-2 text-xs font-bold rounded-xl transition ${
+            className={`py-2 text-[11px] sm:text-xs font-bold rounded-xl transition ${
               activeTab === 'adultClasses' ? 'bg-clubRed text-white shadow' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -173,6 +198,9 @@ export default function ParentDashboard({ registration, onLogout }) {
                 </span>
               </div>
               <p className="text-xs text-gray-500">
+                Turma Atribuída: <strong className="text-clubRed font-bold">{athleteClass}</strong>
+              </p>
+              <p className="text-xs text-gray-500">
                 Código de Acesso: <strong className="text-gray-900 font-mono">{registration.accessCode || registration.access_code}</strong>
               </p>
             </div>
@@ -192,9 +220,9 @@ export default function ParentDashboard({ registration, onLogout }) {
 
               {!isEditing ? (
                 <div className="text-xs text-gray-600 space-y-2 bg-gray-50 p-4 rounded-xl">
-                  <p><strong>Atleta:</strong> {formData.athleteName}</p>
-                  <p><strong>Data de Nascimento:</strong> {formData.birthDate}</p>
-                  <p><strong>Encarregado de Educação:</strong> {formData.parentName}</p>
+                  <p><strong>Atleta:</strong> {formData.athleteName || formData.athlete_name}</p>
+                  <p><strong>Data de Nascimento:</strong> {formData.birthDate || formData.birth_date}</p>
+                  <p><strong>Encarregado de Educação:</strong> {formData.parentName || formData.parent_name}</p>
                   <p><strong>Email:</strong> {formData.email}</p>
                   <p><strong>Telemóvel:</strong> {formData.phone}</p>
                 </div>
@@ -202,11 +230,11 @@ export default function ParentDashboard({ registration, onLogout }) {
                 <form onSubmit={handleSave} className="space-y-3">
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Nome do Atleta</label>
-                    <input type="text" name="athleteName" value={formData.athleteName} onChange={handleChange} className="w-full p-2.5 border rounded-xl text-xs" required />
+                    <input type="text" name="athleteName" value={formData.athleteName || formData.athlete_name || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl text-xs" required />
                   </div>
                   <div>
                     <label className="block text-xs font-medium text-gray-700 mb-1">Telemóvel</label>
-                    <input type="tel" name="phone" value={formData.phone} onChange={handleChange} className="w-full p-2.5 border rounded-xl text-xs" required />
+                    <input type="tel" name="phone" value={formData.phone || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl text-xs" required />
                   </div>
                   <div className="flex space-x-2 pt-2">
                     <button type="button" onClick={() => setIsEditing(false)} className="w-1/2 py-2 bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancelar</button>
@@ -218,7 +246,80 @@ export default function ParentDashboard({ registration, onLogout }) {
           </>
         )}
 
-        {/* ABA 2: CHAT COM O TREINADOR */}
+        {/* ABA 2: EVENTOS E COMPETIÇÕES DA TURMA DO ATLETA */}
+        {activeTab === 'events' && (
+          <div className="space-y-4">
+            <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
+              <div>
+                <h2 className="font-bold text-gray-800 text-sm">Eventos e Convocatórias</h2>
+                <p className="text-xs text-gray-500">
+                  Eventos agendados para a turma: <strong className="text-clubRed">{athleteClass}</strong>
+                </p>
+              </div>
+              <span className="bg-red-50 text-clubRed font-bold text-xs px-2.5 py-1 rounded-lg border border-red-100">
+                {myClassEvents.length} {myClassEvents.length === 1 ? 'Evento' : 'Eventos'}
+              </span>
+            </div>
+
+            {myClassEvents.length === 0 ? (
+              <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 text-center space-y-2">
+                <p className="text-sm font-semibold text-gray-700">Sem eventos agendados</p>
+                <p className="text-xs text-gray-400">Não existem convocações ativas para a turma {athleteClass} de momento.</p>
+              </div>
+            ) : (
+              myClassEvents.map((ev) => (
+                <div key={ev.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-3">
+                  <div className="flex justify-between items-start border-b border-gray-100 pb-3">
+                    <div>
+                      <h3 className="font-bold text-gray-900 text-base">{ev.name}</h3>
+                      <p className="text-xs text-gray-500 mt-0.5">
+                        📅 Data: <strong className="text-gray-800">{ev.date}</strong>
+                      </p>
+                    </div>
+                    <span className="bg-emerald-50 text-emerald-700 font-bold text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider border border-emerald-100">
+                      Convocado
+                    </span>
+                  </div>
+
+                  <div className="space-y-2 pt-1 text-xs">
+                    <div>
+                      <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
+                        Turmas Abrangidas:
+                      </span>
+                      <div className="flex flex-wrap gap-1">
+                        {(ev.targetClasses || [ev.targetClass]).map((tc, idx) => (
+                          <span 
+                            key={idx} 
+                            className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                              tc === athleteClass 
+                                ? 'bg-red-50 text-clubRed border-red-200' 
+                                : 'bg-gray-50 text-gray-600 border-gray-200'
+                            }`}
+                          >
+                            {tc}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mt-2">
+                      <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
+                        Horários Programados:
+                      </span>
+                      <ul className="list-disc list-inside text-gray-800 font-medium space-y-1">
+                        {(ev.schedules || ['Horário a confirmar pelo treinador']).map((sch, idx) => (
+                          <li key={idx}>{sch}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+        )}
+
+        {/* ABA 3: CHAT COM O TREINADOR */}
         {activeTab === 'chat' && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col h-[500px] overflow-hidden">
             
@@ -284,7 +385,7 @@ export default function ParentDashboard({ registration, onLogout }) {
           </div>
         )}
 
-        {/* ABA 3: AULAS PAIS */}
+        {/* ABA 4: AULAS PAIS */}
         {activeTab === 'adultClasses' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
             <h2 className="font-bold text-gray-800 text-sm">Aulas de Adultos (Segundas-Feiras)</h2>

@@ -3,17 +3,31 @@ import { supabase } from '../services/supabaseClient';
 
 const AppContext = createContext();
 
+// Função auxiliar para converter qualquer tipo de dado num Array válido de texto
+const ensureArray = (val) => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) return parsed;
+    } catch (e) {}
+    // Se for uma string separada por vírgulas ou texto simples
+    if (val.includes(',')) {
+      return val.split(',').map(s => s.trim()).filter(Boolean);
+    }
+    return [val.trim()];
+  }
+  return [];
+};
+
 export function AppProvider({ children }) {
   const [registrations, setRegistrations] = useState([]);
-  
+  const [events, setEvents] = useState([]);
+
   const [attendances, setAttendances] = useState(() => {
     const saved = localStorage.getItem('scs_attendances');
     return saved ? JSON.parse(saved) : {};
-  });
-
-  const [events, setEvents] = useState(() => {
-    const saved = localStorage.getItem('scs_events');
-    return saved ? JSON.parse(saved) : [];
   });
 
   const [eventAttendances, setEventAttendances] = useState(() => {
@@ -31,18 +45,15 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Carregar lista de atletas/inscrições do Supabase ao iniciar a aplicação
+  // Carregar atletas e eventos ao iniciar a aplicação
   useEffect(() => {
     fetchRegistrations();
+    fetchEvents();
   }, []);
 
   useEffect(() => {
     localStorage.setItem('scs_attendances', JSON.stringify(attendances));
   }, [attendances]);
-
-  useEffect(() => {
-    localStorage.setItem('scs_events', JSON.stringify(events));
-  }, [events]);
 
   useEffect(() => {
     localStorage.setItem('scs_event_attendances', JSON.stringify(eventAttendances));
@@ -75,6 +86,71 @@ export function AppProvider({ children }) {
       console.error('Erro ao carregar atletas:', err.message);
     }
   };
+
+  // 100% SUPABASE: Leitura ultra-segura e imune a erros de formato
+  const fetchEvents = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('events')
+        .select('*');
+
+      if (error) {
+        console.error('Erro ao procurar na tabela events:', error.message);
+        return;
+      }
+
+      console.log("Dados puros recebidos do Supabase:", data);
+
+      if (data && Array.isArray(data)) {
+        const formattedEvents = data.map((ev) => {
+          if (!ev) return null;
+
+          // 1. Obter Nome do Evento (Tenta todas as variações possíveis de colunas)
+          let eventName = ev.name || ev.title || ev.nome || ev.event_name || ev.description || ev.nome_evento;
+          if (!eventName) {
+            // Procura a primeira chave que contenha texto no objeto
+            const textKey = Object.keys(ev).find(
+              k => k !== 'id' && k !== 'created_at' && typeof ev[k] === 'string' && ev[k].trim() !== ''
+            );
+            eventName = textKey ? ev[textKey] : `Evento #${ev.id || 'Sem ID'}`;
+          }
+
+          // 2. Obter Data do Evento
+          const eventDate = ev.date || ev.data || ev.event_date || ev.created_at || 'Sem data';
+
+          // 3. Obter Turmas Convocadas (Garante sempre um Array de Strings)
+          let rawClasses = ev.target_classes || ev.targetClasses || ev.target_class || ev.targetClass;
+          let parsedClasses = ensureArray(rawClasses);
+          if (parsedClasses.length === 0) {
+            parsedClasses = ['Todas as Turmas'];
+          }
+
+          // 4. Obter Horários (Garante sempre um Array de Strings)
+          let rawSchedules = ev.schedules || ev.time || ev.horario || ev.horarios;
+          let parsedSchedules = ensureArray(rawSchedules);
+          if (parsedSchedules.length === 0) {
+            parsedSchedules = ['Horário a definir'];
+          }
+
+          return {
+            id: ev.id || Math.random().toString(),
+            name: String(eventName),
+            date: String(eventDate),
+            created_at: ev.created_at,
+            targetClasses: parsedClasses,
+            schedules: parsedSchedules,
+            raw: ev // Guarda o objeto original de salvaguarda
+          };
+        }).filter(Boolean); // Remove registos nulos
+
+        console.log("Eventos formatados e prontos:", formattedEvents);
+        setEvents(formattedEvents);
+      }
+    } catch (err) {
+      console.error('Erro ao processar eventos:', err);
+    }
+  };
+
   // Gerador de Código de Acesso no formato SCS-XXXXXX
   const generateSCSCode = () => {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -86,13 +162,10 @@ export function AppProvider({ children }) {
   };
 
   // Submeter nova inscrição no Supabase
-  // Submeter nova inscrição no Supabase
   const addRegistration = async (formData) => {
     const assignedCode = generateSCSCode();
-    const newId = Date.now().toString();
 
     const newReg = {
-      id: newId,
       status: 'pending',
       assignedClass: 'Formação geral',
       assigned_class: 'Formação geral',
@@ -139,7 +212,6 @@ export function AppProvider({ children }) {
         return { success: false, message: 'Erro na base de dados: ' + error.message };
       }
 
-      // Recarrega do servidor para garantir sincronização total em todos os ecrãs
       await fetchRegistrations();
 
       return { 
@@ -279,17 +351,57 @@ export function AppProvider({ children }) {
     }));
   };
 
-  // Eventos do Clube
-  const addEvent = (eventData) => {
-    const newEvent = {
-      id: Date.now().toString(),
-      ...eventData,
+  // 100% SUPABASE: Criar Evento
+  const addEvent = async (eventData) => {
+    const targetClassesList = ensureArray(eventData.targetClasses || eventData.target_classes);
+    const schedulesList = ensureArray(eventData.schedules);
+    const fallbackTargetClass = targetClassesList.join(', ') || 'Formação geral';
+
+    const insertPayload = {
+      name: eventData.name,
+      date: eventData.date,
+      target_class: fallbackTargetClass,
+      target_classes: targetClassesList,
+      targetClasses: targetClassesList,
+      schedules: schedulesList
     };
-    setEvents((prev) => [newEvent, ...prev]);
+
+    if (eventData.id) {
+      insertPayload.id = String(eventData.id);
+    }
+
+    try {
+      const { error } = await supabase
+        .from('events')
+        .insert([insertPayload]);
+
+      if (error) {
+        console.error('Erro ao gravar evento no Supabase:', error.message);
+        alert('Erro ao gravar evento no Supabase: ' + error.message);
+      } else {
+        await fetchEvents();
+      }
+    } catch (err) {
+      console.error('Falha na ligação:', err.message);
+    }
   };
 
-  const deleteEvent = (eventId) => {
-    setEvents((prev) => prev.filter((ev) => ev.id !== eventId));
+  // 100% SUPABASE: Eliminar Evento
+  const deleteEvent = async (eventId) => {
+    try {
+      const { error } = await supabase
+        .from('events')
+        .delete()
+        .eq('id', eventId);
+
+      if (error) {
+        console.error('Erro ao eliminar evento no Supabase:', error.message);
+      } else {
+        await fetchEvents();
+      }
+    } catch (err) {
+      console.error('Falha ao eliminar evento:', err.message);
+    }
   };
 
   const toggleEventAttendance = (eventId, athleteId) => {
@@ -366,6 +478,7 @@ export function AppProvider({ children }) {
         toggleAttendance,
         addEvent,
         deleteEvent,
+        fetchEvents,
         toggleEventAttendance,
         addAdultClass,
         deleteAdultClass,
