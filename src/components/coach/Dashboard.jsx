@@ -381,10 +381,11 @@ export default function Dashboard({ onLogout }) {
                         onChange={(e) => handleClassChange(reg.id, e.target.value)}
                         className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
                       >
-                        <option value="Formação infantil">Formação infantil - </option>
-                        <option value="Formação geral">Formação geral - </option>
-                        <option value="Formação avançada">Formação avançada - </option>
-                        <option value="Representação">Representação - fIR</option>
+                        <option value="Formação infantil">Spark </option>
+                        <option value="Formação geral">Flame </option>
+                        <option value="Formação avançada">Fusion</option>
+                        <option value="Pré-Representação">Thunder</option>
+                        <option value="Representação">Firestorm</option>
                       </select>
                     </div>
 
@@ -548,10 +549,11 @@ export default function Dashboard({ onLogout }) {
                   onChange={(e) => setSelectedClassFilter(e.target.value)}
                   className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-semibold bg-white"
                 >
-                  <option value="Formação infantil">Formação infantil</option>
-                  <option value="Formação geral">Formação geral</option>
-                  <option value="Formação avançada">Formação avançada</option>
-                  <option value="Representação">Representação</option>
+                  <option value="Formação infantil">Spark</option>
+                  <option value="Formação geral">Flame</option>
+                  <option value="Formação avançada">Fusion</option>
+                  <option value="Pré-Representaçcao">Thunder</option>
+                  <option value="Representação">Firestorm</option>
                 </select>
               </div>
 
