@@ -676,7 +676,7 @@ export default function RegistrationWizard({ onBack }) {
               <div className="p-4 bg-gray-50 border border-gray-200 rounded-xl text-center space-y-2">
                 <span className="text-xs text-gray-500 block">Documento oficial disponível:</span>
                 <a 
-                  href="/Regulamento geral.pdf" 
+                  href="/Regulamentos gerais 26-27.pdf" 
                   target="_blank" 
                   rel="noopener noreferrer" 
                   className="inline-block px-4 py-2 bg-gray-900 hover:bg-gray-800 text-white font-semibold rounded-xl text-xs transition shadow-sm"
