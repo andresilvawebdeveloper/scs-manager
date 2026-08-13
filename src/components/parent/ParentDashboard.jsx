@@ -31,10 +31,8 @@ export default function ParentDashboard({ registration, onLogout }) {
   const allEventsList = events || [];
   const myClassEvents = allEventsList.filter((event) => {
     const targetClasses = event.targetClasses || [event.targetClass];
-    // Se não tiver turmas especificadas, exibe por defeito ou compara diretamente
     if (!targetClasses || targetClasses.length === 0) return true;
     
-    // Verifica se a turma do atleta está incluída na lista do evento
     return targetClasses.some(tc => 
       tc && tc.toLowerCase().trim() === athleteClass.toLowerCase().trim()
     );
@@ -47,6 +45,19 @@ export default function ParentDashboard({ registration, onLogout }) {
   );
 
   const activeAdultClasses = adultClasses || [];
+
+  const sizeOptions = [
+    'Não pretendo / Não preciso',
+    '7-8',
+    '9-10',
+    '11-12',
+    '13-14',
+    'XS',
+    'S',
+    'M',
+    'L',
+    'XL'
+  ];
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -98,12 +109,10 @@ export default function ParentDashboard({ registration, onLogout }) {
       date: new Date().toLocaleDateString('pt-PT')
     };
 
-    // 1. Guardar no contexto local da app
     if (sendMessage) {
       sendMessage(msgObj);
     }
 
-    // 2. Disparar notificação por email ao treinador
     try {
       await supabase.functions.invoke('send-club-email', {
         body: {
@@ -188,6 +197,7 @@ export default function ParentDashboard({ registration, onLogout }) {
         {/* ABA 1: FICHA E DADOS */}
         {activeTab === 'overview' && (
           <>
+            {/* Estado da Inscrição */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-2">
               <div className="flex justify-between items-center">
                 <h2 className="font-bold text-gray-800">Estado da Inscrição</h2>
@@ -205,40 +215,146 @@ export default function ParentDashboard({ registration, onLogout }) {
               </p>
             </div>
 
+            {/* Ficha Completa do Atleta e Encarregado */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <div className="flex justify-between items-center">
-                <h2 className="font-bold text-gray-800 text-sm">Dados da Inscrição</h2>
+                <h2 className="font-bold text-gray-800 text-sm">Dados da Ficha de Inscrição</h2>
                 {!isEditing && (
                   <button 
                     onClick={() => setIsEditing(true)}
                     className="text-xs bg-gray-900 text-white px-3 py-1.5 rounded-lg font-semibold"
                   >
-                    Editar Dados
+                    Editar / Adicionar NIF Atleta
                   </button>
                 )}
               </div>
 
               {!isEditing ? (
-                <div className="text-xs text-gray-600 space-y-2 bg-gray-50 p-4 rounded-xl">
-                  <p><strong>Atleta:</strong> {formData.athleteName || formData.athlete_name}</p>
-                  <p><strong>Data de Nascimento:</strong> {formData.birthDate || formData.birth_date}</p>
-                  <p><strong>Encarregado de Educação:</strong> {formData.parentName || formData.parent_name}</p>
-                  <p><strong>Email:</strong> {formData.email}</p>
-                  <p><strong>Telemóvel:</strong> {formData.phone}</p>
+                <div className="space-y-4 text-xs text-gray-700">
+                  
+                  {/* Dados do Atleta */}
+                  <div className="bg-gray-50 p-4 rounded-xl space-y-1.5 border border-gray-100">
+                    <p className="font-bold text-gray-900 text-sm mb-2 border-b border-gray-200 pb-1">👤 Dados do Atleta</p>
+                    <p><strong>Nome Completo:</strong> {formData.athleteName || formData.athlete_name}</p>
+                    <p><strong>Data de Nascimento:</strong> {formData.birthDate || formData.birth_date}</p>
+                    <p><strong>Sexo:</strong> {formData.gender || 'Não especificado'}</p>
+                    <p><strong>Cartão de Cidadão:</strong> {formData.athleteCC || formData.athlete_cc || 'Não preenchido'}</p>
+                    <p>
+                      <strong>NIF do Atleta:</strong>{' '}
+                      {formData.athleteNIF || formData.athlete_nif ? (
+                        <span className="font-semibold text-gray-900">{formData.athleteNIF || formData.athlete_nif}</span>
+                      ) : (
+                        <span className="text-rose-600 font-bold bg-rose-50 px-2 py-0.5 rounded">⚠️ PENDENTE (Clique em Editar para adicionar)</span>
+                      )}
+                    </p>
+                    <p><strong>Morada:</strong> {formData.address ? `${formData.address}, ${formData.city} (${formData.postalCode})` : 'Não preenchida'}</p>
+                  </div>
+
+                  {/* Dados do Encarregado */}
+                  <div className="bg-gray-50 p-4 rounded-xl space-y-1.5 border border-gray-100">
+                    <p className="font-bold text-gray-900 text-sm mb-2 border-b border-gray-200 pb-1">👨‍👩‍👧 Encarregado de Educação</p>
+                    <p><strong>Nome do Encarregado:</strong> {formData.parentName || formData.parent_name}</p>
+                    <p><strong>CC do Encarregado:</strong> {formData.parentCC || formData.parent_cc || 'Não preenchido'}</p>
+                    <p><strong>Email de Contacto:</strong> {formData.email}</p>
+                    <p><strong>Telemóvel:</strong> {formData.phone}</p>
+                  </div>
+
+                  {/* Informações de Sócio */}
+                  <div className="bg-gray-50 p-4 rounded-xl space-y-1.5 border border-gray-100">
+                    <p className="font-bold text-gray-900 text-sm mb-2 border-b border-gray-200 pb-1">🎗️ Estatuto de Sócio do Clube</p>
+                    <p><strong>Número de Sócio:</strong> {formData.memberNumber || formData.member_number || 'Sem número'}</p>
+                    <p><strong>Titular do Cartão:</strong> {formData.memberType || formData.member_type || 'Atleta'}</p>
+                  </div>
+
+                  {/* Equipamentos */}
+                  <div className="bg-gray-50 p-4 rounded-xl space-y-1.5 border border-gray-100">
+                    <p className="font-bold text-gray-900 text-sm mb-2 border-b border-gray-200 pb-1">👕 Equipamentos e Vestuário</p>
+                    <p><strong>Fato de Treino:</strong> {formData.tracksuitSize || 'Não requisitado'}</p>
+                    <p><strong>T-shirt Oficial:</strong> {formData.officialTshirtSize || 'Não requisitado'}</p>
+                    <p><strong>T-shirt Vermelha:</strong> {formData.redTshirtSize || 'Não requisitado'}</p>
+                    <p><strong>T-shirt Amarela:</strong> {formData.yellowTshirtSize || 'Não requisitado'}</p>
+                  </div>
+
                 </div>
               ) : (
-                <form onSubmit={handleSave} className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Nome do Atleta</label>
-                    <input type="text" name="athleteName" value={formData.athleteName || formData.athlete_name || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl text-xs" required />
+                <form onSubmit={handleSave} className="space-y-4 text-xs">
+                  
+                  {/* Formulário de Edição */}
+                  <div className="bg-gray-50 p-4 rounded-xl space-y-3">
+                    <h3 className="font-bold text-gray-900 text-xs">Editar Informação Pessoal do Atleta</h3>
+                    
+                    <div>
+                      <label className="block font-medium text-gray-700 mb-1">Nome do Atleta</label>
+                      <input type="text" name="athleteName" value={formData.athleteName || formData.athlete_name || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" required />
+                    </div>
+
+                    <div>
+                      <label className="block font-bold text-clubRed mb-1">NIF do Atleta (9 dígitos)</label>
+                      <input 
+                        type="text" 
+                        name="athleteNIF" 
+                        maxLength={9} 
+                        placeholder="Ex: 123456789" 
+                        value={formData.athleteNIF || formData.athlete_nif || ''} 
+                        onChange={handleChange} 
+                        className="w-full p-2.5 border border-clubRed focus:ring-2 focus:ring-clubRed rounded-xl font-bold text-gray-900 bg-red-50/20" 
+                        required 
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-gray-700 mb-1">Cartão de Cidadão do Atleta</label>
+                      <input type="text" name="athleteCC" value={formData.athleteCC || formData.athlete_cc || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl uppercase" />
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-gray-700 mb-1">Nome do Encarregado</label>
+                      <input type="text" name="parentName" value={formData.parentName || formData.parent_name || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" required />
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-gray-700 mb-1">Telemóvel</label>
+                      <input type="tel" name="phone" value={formData.phone || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" required />
+                    </div>
+
+                    <div>
+                      <label className="block font-medium text-gray-700 mb-1">Morada</label>
+                      <input type="text" name="address" value={formData.address || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block font-medium text-gray-700 mb-1">Localidade</label>
+                        <input type="text" name="city" value={formData.city || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" />
+                      </div>
+                      <div>
+                        <label className="block font-medium text-gray-700 mb-1">Código Postal</label>
+                        <input type="text" name="postalCode" value={formData.postalCode || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="block text-xs font-medium text-gray-700 mb-1">Telemóvel</label>
-                    <input type="tel" name="phone" value={formData.phone || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl text-xs" required />
+
+                  <div className="bg-gray-50 p-4 rounded-xl space-y-3">
+                    <h3 className="font-bold text-gray-900 text-xs">Tamanhos de Equipamento</h3>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="block font-medium text-gray-700 mb-1">Fato de Treino</label>
+                        <select name="tracksuitSize" value={formData.tracksuitSize || 'Não pretendo / Não preciso'} onChange={handleChange} className="w-full p-2 border rounded-xl bg-white">
+                          {sizeOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block font-medium text-gray-700 mb-1">T-shirt Oficial</label>
+                        <select name="officialTshirtSize" value={formData.officialTshirtSize || 'Não pretendo / Não preciso'} onChange={handleChange} className="w-full p-2 border rounded-xl bg-white">
+                          {sizeOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                        </select>
+                      </div>
+                    </div>
                   </div>
+
                   <div className="flex space-x-2 pt-2">
-                    <button type="button" onClick={() => setIsEditing(false)} className="w-1/2 py-2 bg-gray-200 text-gray-700 rounded-xl text-xs font-semibold">Cancelar</button>
-                    <button type="submit" className="w-1/2 py-2 bg-clubRed text-white rounded-xl text-xs font-semibold">Guardar Alterações</button>
+                    <button type="button" onClick={() => setIsEditing(false)} className="w-1/2 py-2.5 bg-gray-200 text-gray-700 rounded-xl font-semibold">Cancelar</button>
+                    <button type="submit" className="w-1/2 py-2.5 bg-clubRed text-white rounded-xl font-semibold shadow">Guardar Alterações</button>
                   </div>
                 </form>
               )}

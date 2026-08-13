@@ -105,10 +105,9 @@ export function AppProvider({ children }) {
         const formattedEvents = data.map((ev) => {
           if (!ev) return null;
 
-          // 1. Obter Nome do Evento (Tenta todas as variações possíveis de colunas)
+          // 1. Obter Nome do Evento
           let eventName = ev.name || ev.title || ev.nome || ev.event_name || ev.description || ev.nome_evento;
           if (!eventName) {
-            // Procura a primeira chave que contenha texto no objeto
             const textKey = Object.keys(ev).find(
               k => k !== 'id' && k !== 'created_at' && typeof ev[k] === 'string' && ev[k].trim() !== ''
             );
@@ -118,14 +117,14 @@ export function AppProvider({ children }) {
           // 2. Obter Data do Evento
           const eventDate = ev.date || ev.data || ev.event_date || ev.created_at || 'Sem data';
 
-          // 3. Obter Turmas Convocadas (Garante sempre um Array de Strings)
+          // 3. Obter Turmas Convocadas
           let rawClasses = ev.target_classes || ev.targetClasses || ev.target_class || ev.targetClass;
           let parsedClasses = ensureArray(rawClasses);
           if (parsedClasses.length === 0) {
             parsedClasses = ['Todas as Turmas'];
           }
 
-          // 4. Obter Horários (Garante sempre um Array de Strings)
+          // 4. Obter Horários
           let rawSchedules = ev.schedules || ev.time || ev.horario || ev.horarios;
           let parsedSchedules = ensureArray(rawSchedules);
           if (parsedSchedules.length === 0) {
@@ -139,9 +138,9 @@ export function AppProvider({ children }) {
             created_at: ev.created_at,
             targetClasses: parsedClasses,
             schedules: parsedSchedules,
-            raw: ev // Guarda o objeto original de salvaguarda
+            raw: ev
           };
-        }).filter(Boolean); // Remove registos nulos
+        }).filter(Boolean);
 
         console.log("Eventos formatados e prontos:", formattedEvents);
         setEvents(formattedEvents);
@@ -178,10 +177,14 @@ export function AppProvider({ children }) {
       gender: formData.gender || 'Masculino',
       athleteCC: formData.athleteCC || '',
       athlete_cc: formData.athleteCC || '',
+      athleteNIF: formData.athleteNIF || '',
+      athlete_nif: formData.athleteNIF || '',
       parentName: formData.parentName || '',
       parent_name: formData.parentName || '',
       parentCC: formData.parentCC || '',
       parent_cc: formData.parentCC || '',
+      parentNIF: formData.parentNIF || '',
+      parent_nif: formData.parentNIF || '',
       email: formData.email || '',
       phone: formData.phone || '',
       address: formData.address || '',
@@ -245,6 +248,7 @@ export function AppProvider({ children }) {
       const updates = {
         status: 'accepted',
         assignedClass: assignedClass,
+        assigned_class: assignedClass,
         accessCode: finalCode,
         access_code: finalCode,
       };
@@ -275,12 +279,20 @@ export function AppProvider({ children }) {
 
   // Encarregado de Educação atualiza os seus dados
   const updateRegistrationByParent = async (id, updatedData) => {
+    const payload = {
+      ...updatedData,
+      athlete_nif: updatedData.athleteNIF || updatedData.athlete_nif || '',
+      athleteNIF: updatedData.athleteNIF || updatedData.athlete_nif || '',
+      parent_nif: updatedData.parentNIF || updatedData.parent_nif || '',
+      parentNIF: updatedData.parentNIF || updatedData.parent_nif || '',
+    };
+
     try {
-      const { error } = await supabase.from('registrations').update(updatedData).eq('id', id);
+      const { error } = await supabase.from('registrations').update(payload).eq('id', id);
       if (error) throw error;
 
       setRegistrations((prev) =>
-        prev.map((reg) => (reg.id === id ? { ...reg, ...updatedData } : reg))
+        prev.map((reg) => (reg.id === id ? { ...reg, ...payload } : reg))
       );
     } catch (err) {
       console.error('Erro ao atualizar dados pelo encarregado:', err.message);

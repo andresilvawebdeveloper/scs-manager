@@ -11,6 +11,7 @@ export default function RegistrationWizard({ onBack }) {
     birthDate: '',
     gender: 'Masculino',
     athleteCC: '',
+    athleteNIF: '',
     address: '',
     city: '',
     postalCode: '',
@@ -76,7 +77,12 @@ export default function RegistrationWizard({ onBack }) {
       case 3:
         const ccRegex = /^\d{8}[A-Z0-9]{4}$/;
         if (!ccRegex.test(formData.athleteCC.replace(/\s/g, ''))) {
-          setError('Formato inválido (deve conter 8 dígitos + 4 caracteres, ex: 12345678ZX12).');
+          setError('CC do atleta inválido (deve conter 8 dígitos + 4 caracteres, ex: 12345678ZX12).');
+          return false;
+        }
+        const nifRegex = /^\d{9}$/;
+        if (!nifRegex.test(formData.athleteNIF.replace(/\s/g, ''))) {
+          setError('NIF do atleta inválido (deve conter exatamente 9 dígitos).');
           return false;
         }
         break;
@@ -260,18 +266,36 @@ export default function RegistrationWizard({ onBack }) {
           {step === 3 && (
             <div className="space-y-3">
               <label className="block text-base font-bold text-gray-900">
-                Qual é o número de Cartão de Cidadão do atleta?
+                Documentos de Identificação do Atleta
               </label>
-              <input
-                type="text"
-                name="athleteCC"
-                value={formData.athleteCC}
-                onChange={handleChange}
-                placeholder="Ex: 12345678ZX1"
-                className="w-full p-3.5 border border-gray-300 rounded-xl text-sm uppercase focus:ring-2 focus:ring-clubRed focus:outline-none"
-                autoFocus
-              />
-              <span className="text-[11px] text-gray-400 block">Formato: 8 dígitos + 4 caracteres</span>
+              
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">Cartão de Cidadão do Atleta</label>
+                <input
+                  type="text"
+                  name="athleteCC"
+                  value={formData.athleteCC}
+                  onChange={handleChange}
+                  placeholder="Ex: 12345678ZX12"
+                  className="w-full p-3 border border-gray-300 rounded-xl text-sm uppercase focus:ring-2 focus:ring-clubRed focus:outline-none"
+                  autoFocus
+                />
+                <span className="text-[11px] text-gray-400 block mt-0.5">Formato: 8 dígitos + 4 caracteres</span>
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-gray-700 mb-1">NIF do Atleta (Número de Identificação Fiscal)</label>
+                <input
+                  type="text"
+                  name="athleteNIF"
+                  value={formData.athleteNIF}
+                  onChange={handleChange}
+                  placeholder="Ex: 123456789"
+                  maxLength={9}
+                  className="w-full p-3 border border-gray-300 rounded-xl text-sm focus:ring-2 focus:ring-clubRed focus:outline-none"
+                />
+                <span className="text-[11px] text-gray-400 block mt-0.5">Formato: 9 dígitos numéricos</span>
+              </div>
             </div>
           )}
 
