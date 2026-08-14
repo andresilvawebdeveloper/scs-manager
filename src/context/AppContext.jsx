@@ -346,21 +346,29 @@ export function AppProvider({ children }) {
     return { success: false, message: "Email ou password incorretos." };
   };
 
-  // Marcação de Presenças
-  const toggleAttendance = (athleteId, date) => {
+  // Marcação de Presenças (Aceita definição direta de estado ou modo ciclo)
+  const toggleAttendance = (athleteId, date, forcedStatus = undefined) => {
     const key = `${athleteId}_${date}`;
-    const current = attendances[key];
     
-    let nextState = 'presente';
-    if (current === 'presente') nextState = 'justificado';
-    else if (current === 'justificado') nextState = 'injustificado';
-    else if (current === 'injustificado') nextState = 'lesao';
-    else if (current === 'lesao') nextState = null;
+    setAttendances((prev) => {
+      let nextState;
 
-    setAttendances((prev) => ({
-      ...prev,
-      [key]: nextState,
-    }));
+      if (forcedStatus !== undefined) {
+        nextState = forcedStatus;
+      } else {
+        const current = prev[key];
+        if (current === 'presente') nextState = 'justificado';
+        else if (current === 'justificado') nextState = 'injustificado';
+        else if (current === 'injustificado') nextState = 'lesao';
+        else if (current === 'lesao') nextState = null;
+        else nextState = 'presente';
+      }
+
+      return {
+        ...prev,
+        [key]: nextState,
+      };
+    });
   };
 
   // 100% SUPABASE: Criar Evento

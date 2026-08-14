@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../services/supabaseClient';
+import ExcelJS from 'exceljs';
+import { saveAs } from 'file-saver';
 
 export default function Dashboard({ onLogout }) {
   const { 
@@ -22,7 +24,6 @@ export default function Dashboard({ onLogout }) {
     sendMessage
   } = useApp();
 
-  // Forçar o carregamento das inscrições diretamente do Supabase ao abrir o Dashboard
   useEffect(() => {
     if (fetchRegistrations) {
       fetchRegistrations();
@@ -31,14 +32,14 @@ export default function Dashboard({ onLogout }) {
 
   const [activeTab, setActiveTab] = useState('pending');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
-  const [selectedClassFilter, setSelectedClassFilter] = useState('Formação infantil');
+  const [selectedClassFilter, setSelectedClassFilter] = useState('Spark');
   const [selectedClasses, setSelectedClasses] = useState({});
 
   const [expandedAthletes, setExpandedAthletes] = useState({});
 
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
-  const [newEventClass, setNewEventClass] = useState('Formação geral');
+  const [newEventClass, setNewEventClass] = useState('Flame');
 
   const [parentClassDate, setParentClassDate] = useState('');
   const [parentClassTime, setParentClassTime] = useState('18:15 - 19:00');
@@ -47,6 +48,15 @@ export default function Dashboard({ onLogout }) {
   const [chatTarget, setChatTarget] = useState('all');
   const [chatText, setChatText] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
+
+  // Estado local sincronizado para garanitr fidelidade visual e na exportação
+  const [localAttendances, setLocalAttendances] = useState({});
+
+  useEffect(() => {
+    if (attendances) {
+      setLocalAttendances(attendances);
+    }
+  }, [attendances]);
 
   const pendingList = registrations.filter((r) => r.status === 'pending');
   const acceptedList = registrations.filter((r) => r.status === 'accepted');
@@ -64,8 +74,26 @@ export default function Dashboard({ onLogout }) {
     }));
   };
 
+  // Função para definir o estado de presença exatamente na tecla pretendida
+  const handleSetAthleteStatus = (athleteId, targetStatus) => {
+    const key = `${athleteId}_${selectedDate}`;
+    const currentStatus = localAttendances[key];
+    
+    // Se voltar a clicar na opção ativa, limpa o estado
+    const newStatus = currentStatus === targetStatus ? null : targetStatus;
+
+    setLocalAttendances((prev) => ({
+      ...prev,
+      [key]: newStatus
+    }));
+
+    if (toggleAttendance) {
+      toggleAttendance(athleteId, selectedDate, newStatus);
+    }
+  };
+
   const handleAcceptWithClass = async (regId) => {
-    const assignedClass = selectedClasses[regId] || 'Formação geral';
+    const assignedClass = selectedClasses[regId] || 'Flame';
     const athlete = pendingList.find((r) => r.id === regId);
     if (!athlete) return;
 
@@ -197,6 +225,108 @@ export default function Dashboard({ onLogout }) {
   const currentChatMessages = allMessagesList.filter(
     (m) => chatTarget === 'all' ? m.recipientEmail === 'all' : (m.recipientEmail === chatTarget || m.senderEmail === chatTarget)
   );
+
+  // Agrupar atletas ativos por Turma
+  const groupedAcceptedAthletes = acceptedList.reduce((acc, athlete) => {
+    const className = athlete.assignedClass || athlete.assigned_class || 'Flame';
+    if (!acc[className]) {
+      acc[className] = [];
+    }
+    acc[className].push(athlete);
+    return acc;
+  }, {});
+
+  // EXPORTAÇÃO PARA EXCEL COM AS SIGLAS REQUISITADAS (P, FJ, FNJ, L)
+  const exportAttendancesToExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Presenças ');
+
+    worksheet.getColumn(1).width = 6;
+    worksheet.getColumn(2).width = 28;
+
+    const months = [
+      { name: 'SETEMBRO', days: [2, 4, 7, 9, 11, 14, 16, 18, 21, 23, 25, 28, 30] },
+      { name: 'OUTUBRO', days: [2, 5, 7, 9, 12, 14, 16, 19, 21, 23, 26, 28, 30] },
+      { name: 'NOVEMBRO', days: [2, 4, 6, 9, 11, 13, 16, 18, 20, 23, 25, 27, 30] },
+      { name: 'DEZEMBRO', days: [2, 4, 7, 9, 11, 14, 16, 18, 21, 23, 25, 28] }
+    ];
+
+    let startCol = 3;
+    months.forEach((m) => {
+      const endCol = startCol + m.days.length - 1;
+      worksheet.mergeCells(1, startCol, 1, endCol);
+      const cell = worksheet.getCell(1, startCol);
+      cell.value = m.name;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.font = { name: 'Arial', size: 10, bold: true };
+
+      m.days.forEach((day, idx) => {
+        const colIdx = startCol + idx;
+        worksheet.getColumn(colIdx).width = 4.5;
+        const dayCell = worksheet.getCell(2, colIdx);
+        dayCell.value = day;
+        dayCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        dayCell.font = { name: 'Arial', size: 9 };
+      });
+
+      startCol = endCol + 1;
+    });
+
+    let currentRow = 3;
+
+    // Obter fonte de dados mais atual para presenças
+    const currentAttendancesMap = { ...attendances, ...localAttendances };
+
+    const classesList = Object.keys(groupedAcceptedAthletes);
+    const targetClasses = classesList.length > 0 ? classesList : [selectedClassFilter];
+
+    targetClasses.forEach((className) => {
+      const athletes = groupedAcceptedAthletes[className] || [];
+      if (athletes.length === 0) return;
+
+      athletes.forEach((athlete, index) => {
+        const numCell = worksheet.getCell(currentRow, 1);
+        numCell.value = index + 1;
+        numCell.alignment = { horizontal: 'center' };
+        numCell.font = { name: 'Arial', size: 9 };
+
+        const nameCell = worksheet.getCell(currentRow, 2);
+        nameCell.value = athlete.athleteName || athlete.athlete_name || athlete.fullName;
+        nameCell.font = { name: 'Arial', size: 9 };
+
+        let colTracker = 3;
+        months.forEach((m) => {
+          m.days.forEach((day) => {
+            const monthNum = m.name === 'SETEMBRO' ? '09' : m.name === 'OUTUBRO' ? '10' : m.name === 'NOVEMBRO' ? '11' : '12';
+            const dayStr = day < 10 ? `0${day}` : `${day}`;
+            const yearStr = new Date().getFullYear();
+            const dateKey = `${yearStr}-${monthNum}-${dayStr}`;
+
+            const status = currentAttendancesMap[`${athlete.id}_${dateKey}`];
+            const pCell = worksheet.getCell(currentRow, colTracker);
+
+            // MAPEAMENTO DE SIGLAS
+            if (status === 'presente') pCell.value = 'P';
+            else if (status === 'justificado') pCell.value = 'FJ';
+            else if (status === 'injustificado') pCell.value = 'FNJ';
+            else if (status === 'lesao') pCell.value = 'L';
+
+            pCell.alignment = { horizontal: 'center' };
+            pCell.font = { name: 'Arial', size: 8 };
+
+            colTracker++;
+          });
+        });
+
+        currentRow++;
+      });
+
+      currentRow += 2;
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `Presencas_SCS_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
 
   return (
     <div className="min-h-screen bg-gray-100 pb-12">
@@ -377,15 +507,15 @@ export default function Dashboard({ onLogout }) {
                     <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
                       <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
                       <select
-                        value={selectedClasses[reg.id] || 'Formação geral'}
+                        value={selectedClasses[reg.id] || 'Spark'}
                         onChange={(e) => handleClassChange(reg.id, e.target.value)}
                         className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
                       >
-                        <option value="Formação infantil">Spark </option>
-                        <option value="Formação geral">Flame </option>
-                        <option value="Formação avançada">Fusion</option>
-                        <option value="Pré-Representação">Thunder</option>
-                        <option value="Representação">Firestorm</option>
+                        <option value="Spark">Spark (Formação Infantil)</option>
+                        <option value="Flame">Flame (Formação Geral)</option>
+                        <option value="Fusion">Fusion (Formação Avançada)</option>
+                        <option value="Thunder">Thunder (Pré-Representação)</option>
+                        <option value="Firestorm">Firestorm (Representação)</option>
                       </select>
                     </div>
 
@@ -410,130 +540,153 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: ATLETAS ACEITES */}
+        {/* SECÇÃO: ATLETAS ACEITES ORGANIZADOS POR TURMA */}
         {activeTab === 'accepted' && (
-          <div className="space-y-4">
+          <div className="space-y-6">
             <h2 className="font-bold text-gray-800 text-sm">Atletas Ativos no Plantel</h2>
+            
             {acceptedList.length === 0 ? (
               <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 text-center space-y-2">
                 <p className="text-sm font-semibold text-gray-700">Nenhum atleta ativo</p>
               </div>
             ) : (
-              acceptedList.map((reg) => {
-                const parentEmail = reg.email || reg.parentEmail || reg.parent_email;
-                const isExpanded = expandedAthletes[reg.id] || false;
-                const name = reg.athleteName || reg.athlete_name || reg.fullName;
-
-                return (
-                  <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                    
-                    <div className="flex justify-between items-start">
-                      <div className="space-y-1">
-                        <h3 className="font-bold text-gray-900 text-base">{name}</h3>
-                        <p className="text-xs text-gray-500">
-                          Turma: <span className="font-semibold text-clubRed">{reg.assignedClass || reg.assigned_class || 'Formação geral'}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
-                        </p>
-                        <p className="text-[11px] text-gray-400 font-mono">
-                          Código de Acesso: <span className="font-semibold text-gray-700">{reg.access_code || reg.accessCode || 'N/A'}</span>
-                        </p>
-                      </div>
-
-                      <div className="flex items-center space-x-2">
-                        <button
-                          onClick={() => toggleExpandAthlete(reg.id)}
-                          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
-                        >
-                          <span>{isExpanded ? '▲ Ocultar Ficha' : '▼ Ver Ficha Completa'}</span>
-                        </button>
-
-                        {parentEmail && (
-                          <button
-                            onClick={() => handleOpenPrivateChat(parentEmail)}
-                            className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
-                          >
-                            <span>💬 Chat</span>
-                          </button>
-                        )}
-
-                        <button
-                          onClick={() => {
-                            if (window.confirm(`Tem certeza que pretende remover o atleta ${name}?`)) {
-                              removeAcceptedAthlete(reg.id);
-                            }
-                          }}
-                          className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
-                        >
-                          Remover
-                        </button>
-                      </div>
+              Object.entries(groupedAcceptedAthletes).map(([className, athletes]) => (
+                <div key={className} className="space-y-3">
+                  
+                  {/* Cabeçalho do Grupo da Turma */}
+                  <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-5 py-3 rounded-xl flex justify-between items-center shadow-sm">
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs bg-clubRed px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider">
+                        Turma
+                      </span>
+                      <h3 className="font-bold text-sm">{className}</h3>
                     </div>
-
-                    {isExpanded && (
-                      <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                            👤 Dados do Atleta
-                          </h4>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
-                            <p><strong>Nascimento:</strong> {reg.birthDate || reg.birth_date || 'N/D'}</p>
-                            <p><strong>Sexo:</strong> {reg.gender || 'N/D'}</p>
-                            <p><strong>Cartão de Cidadão:</strong> {reg.athleteCC || reg.athlete_cc || 'N/D'}</p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                            👨‍👩‍👧 Encarregado de Educação & Contactos
-                          </h4>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                            <p><strong>Nome do EE:</strong> {reg.parentName || reg.parent_name || 'N/D'}</p>
-                            <p><strong>CC do EE:</strong> {reg.parentCC || reg.parent_cc || 'N/D'}</p>
-                            <p><strong>Email:</strong> {parentEmail || 'N/D'}</p>
-                            <p><strong>Telemóvel:</strong> {reg.phone || 'N/D'}</p>
-                            <p className="sm:col-span-2">
-                              <strong>Morada:</strong> {reg.address || 'N/D'}, {reg.postalCode || reg.postal_code} {reg.city}
-                            </p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                            💳 Estatuto de Sócio
-                          </h4>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                            <p><strong>Nº de Sócio:</strong> {reg.memberNumber || reg.member_number || 'N/D'}</p>
-                            <p><strong>Sócio Titular:</strong> {reg.memberType || reg.member_type || 'Atleta'}</p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                            🎽 Equipamento e Vestuário
-                          </h4>
-                          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-gray-700">
-                            <p><strong>Fato de Treino:</strong> {reg.tracksuitSize || reg.tracksuit_size || 'Não pretendo'}</p>
-                            <p><strong>T-shirt Oficial:</strong> {reg.officialTshirtSize || reg.official_tshirt_size || 'Não pretendo'}</p>
-                            <p><strong>T-shirt Vermelha:</strong> {reg.redTshirtSize || reg.red_tshirt_size || 'Não pretendo'}</p>
-                            <p><strong>T-shirt Amarela:</strong> {reg.yellowTshirtSize || reg.yellow_tshirt_size || 'Não pretendo'}</p>
-                          </div>
-                        </div>
-
-                        <div className="space-y-1">
-                          <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                            🤸 Aulas para Encarregados
-                          </h4>
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
-                            <p><strong>Interesse:</strong> {reg.adultClassesInterest || reg.adult_classes_interest || 'Não'}</p>
-                            <p><strong>Participantes:</strong> {reg.adultClassesParticipants || reg.adult_classes_participants || 'N/D'}</p>
-                            <p><strong>Pagamento:</strong> {reg.adultClassesPaymentMode || reg.adult_classes_payment_mode || 'N/D'}</p>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
+                    <span className="text-xs bg-white/10 px-3 py-1 rounded-lg font-semibold text-gray-200 border border-white/10">
+                      {athletes.length} {athletes.length === 1 ? 'Atleta' : 'Atletas'}
+                    </span>
                   </div>
-                );
-              })
+
+                  {/* Lista de Atletas da Turma */}
+                  <div className="space-y-3">
+                    {athletes.map((reg) => {
+                      const parentEmail = reg.email || reg.parentEmail || reg.parent_email;
+                      const isExpanded = expandedAthletes[reg.id] || false;
+                      const name = reg.athleteName || reg.athlete_name || reg.fullName;
+
+                      return (
+                        <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                          
+                          <div className="flex justify-between items-start">
+                            <div className="space-y-1">
+                              <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                              <p className="text-xs text-gray-500">
+                                Turma: <span className="font-semibold text-clubRed">{className}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
+                              </p>
+                              <p className="text-[11px] text-gray-400 font-mono">
+                                Código de Acesso: <span className="font-semibold text-gray-700">{reg.access_code || reg.accessCode || 'N/A'}</span>
+                              </p>
+                            </div>
+
+                            <div className="flex items-center space-x-2">
+                              <button
+                                onClick={() => toggleExpandAthlete(reg.id)}
+                                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                              >
+                                <span>{isExpanded ? '▲ Ocultar Ficha' : '▼ Ver Ficha Completa'}</span>
+                              </button>
+
+                              {parentEmail && (
+                                <button
+                                  onClick={() => handleOpenPrivateChat(parentEmail)}
+                                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                                >
+                                  <span>💬 Chat</span>
+                                </button>
+                              )}
+
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Tem certeza que pretende remover o atleta ${name}?`)) {
+                                    removeAcceptedAthlete(reg.id);
+                                  }
+                                }}
+                                className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
+                              >
+                                Remover
+                              </button>
+                            </div>
+                          </div>
+
+                          {isExpanded && (
+                            <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                  👤 Dados do Atleta
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
+                                  <p><strong>Nascimento:</strong> {reg.birthDate || reg.birth_date || 'N/D'}</p>
+                                  <p><strong>Sexo:</strong> {reg.gender || 'N/D'}</p>
+                                  <p><strong>Cartão de Cidadão:</strong> {reg.athleteCC || reg.athlete_cc || 'N/D'}</p>
+                                  <p><strong>NIF Atleta:</strong> {reg.athleteNIF || reg.athlete_nif || 'N/D'}</p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                  👨‍👩‍👧 Encarregado de Educação & Contactos
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
+                                  <p><strong>Nome do EE:</strong> {reg.parentName || reg.parent_name || 'N/D'}</p>
+                                  <p><strong>CC do EE:</strong> {reg.parentCC || reg.parent_cc || 'N/D'}</p>
+                                  <p><strong>Email:</strong> {parentEmail || 'N/D'}</p>
+                                  <p><strong>Telemóvel:</strong> {reg.phone || 'N/D'}</p>
+                                  <p className="sm:col-span-2">
+                                    <strong>Morada:</strong> {reg.address || 'N/D'}, {reg.postalCode || reg.postal_code} {reg.city}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                  💳 Estatuto de Sócio
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
+                                  <p><strong>Nº de Sócio:</strong> {reg.memberNumber || reg.member_number || 'N/D'}</p>
+                                  <p><strong>Sócio Titular:</strong> {reg.memberType || reg.member_type || 'Atleta'}</p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                  🎽 Equipamento e Vestuário
+                                </h4>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-gray-700">
+                                  <p><strong>Fato de Treino:</strong> {reg.tracksuitSize || reg.tracksuit_size || 'Não pretendo'}</p>
+                                  <p><strong>T-shirt Oficial:</strong> {reg.officialTshirtSize || reg.official_tshirt_size || 'Não pretendo'}</p>
+                                  <p><strong>T-shirt Vermelha:</strong> {reg.redTshirtSize || reg.red_tshirt_size || 'Não pretendo'}</p>
+                                  <p><strong>T-shirt Amarela:</strong> {reg.yellowTshirtSize || reg.yellow_tshirt_size || 'Não pretendo'}</p>
+                                </div>
+                              </div>
+
+                              <div className="space-y-1">
+                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                  🤸 Aulas para Encarregados
+                                </h4>
+                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
+                                  <p><strong>Interesse:</strong> {reg.adultClassesInterest || reg.adult_classes_interest || 'Não'}</p>
+                                  <p><strong>Participantes:</strong> {reg.adultClassesParticipants || reg.adult_classes_participants || 'N/D'}</p>
+                                  <p><strong>Pagamento:</strong> {reg.adultClassesPaymentMode || reg.adult_classes_payment_mode || 'N/D'}</p>
+                                </div>
+                              </div>
+                            </div>
+                          )}
+
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))
             )}
           </div>
         )}
@@ -541,37 +694,52 @@ export default function Dashboard({ onLogout }) {
         {/* SECÇÃO: PRESENÇAS */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
-            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs font-bold text-gray-800 mb-1">Selecione a Turma:</label>
-                <select
-                  value={selectedClassFilter}
-                  onChange={(e) => setSelectedClassFilter(e.target.value)}
-                  className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-semibold bg-white"
-                >
-                  <option value="Formação infantil">Spark</option>
-                  <option value="Formação geral">Flame</option>
-                  <option value="Formação avançada">Fusion</option>
-                  <option value="Pré-Representaçcao">Thunder</option>
-                  <option value="Representação">Firestorm</option>
-                </select>
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 w-full sm:w-auto">
+                <div>
+                  <label className="block text-xs font-bold text-gray-800 mb-1">Selecione a Turma:</label>
+                  <select
+                    value={selectedClassFilter}
+                    onChange={(e) => setSelectedClassFilter(e.target.value)}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-semibold bg-white"
+                  >
+                    <option value="Spark">Spark</option>
+                    <option value="Flame">Flame</option>
+                    <option value="Fusion">Fusion</option>
+                    <option value="Thunder">Thunder</option>
+                    <option value="Firestorm">Firestorm</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-bold text-gray-800 mb-1">Selecione o Dia do Treino:</label>
+                  <input
+                    type="date"
+                    value={selectedDate}
+                    onChange={(e) => setSelectedDate(e.target.value)}
+                    className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium bg-gray-50"
+                  />
+                </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold text-gray-800 mb-1">Selecione o Dia do Treino:</label>
-                <input
-                  type="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium bg-gray-50"
-                />
-              </div>
+              <button
+                onClick={exportAttendancesToExcel}
+                className="w-full sm:w-auto px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow flex items-center justify-center space-x-2"
+              >
+                <span>📊 Exportar Presenças (Excel)</span>
+              </button>
             </div>
 
             {(() => {
-              const athletesInSelectedClass = acceptedList.filter(
-                (a) => (a.assignedClass || a.assigned_class || 'Formação geral') === selectedClassFilter
-              );
+              const athletesInSelectedClass = acceptedList.filter((a) => {
+                const assigned = a.assignedClass || a.assigned_class || 'Flame';
+                if (selectedClassFilter === 'Spark') return assigned === 'Spark' || assigned === 'Formação infantil';
+                if (selectedClassFilter === 'Flame') return assigned === 'Flame' || assigned === 'Formação geral';
+                if (selectedClassFilter === 'Fusion') return assigned === 'Fusion' || assigned === 'Formação avançada';
+                if (selectedClassFilter === 'Thunder') return assigned === 'Thunder' || assigned === 'Pré-Representação';
+                if (selectedClassFilter === 'Firestorm') return assigned === 'Firestorm' || assigned === 'Representação';
+                return assigned === selectedClassFilter;
+              });
 
               if (athletesInSelectedClass.length === 0) {
                 return (
@@ -582,32 +750,69 @@ export default function Dashboard({ onLogout }) {
               }
 
               return athletesInSelectedClass.map((reg) => {
-                const status = attendances[`${reg.id}_${selectedDate}`];
-                let buttonStyle = 'bg-gray-100 text-gray-600';
-                let buttonText = 'Por Marcar';
-
-                if (status === 'presente') {
-                  buttonStyle = 'bg-emerald-600 text-white';
-                  buttonText = 'Presente ✓';
-                } else if (status === 'justificado') {
-                  buttonStyle = 'bg-amber-500 text-white';
-                  buttonText = 'Faltou com Justificação';
-                } else if (status === 'injustificado') {
-                  buttonStyle = 'bg-rose-600 text-white';
-                  buttonText = 'Faltou sem Justificação ✕';
-                }
+                const currentStatus = localAttendances[`${reg.id}_${selectedDate}`];
 
                 return (
-                  <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex justify-between items-center">
+                  <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                     <div>
-                      <h3 className="font-bold text-gray-900 text-sm">{reg.athleteName || reg.athlete_name || reg.fullName}</h3>
+                      <h3 className="font-bold text-gray-900 text-sm">
+                        {reg.athleteName || reg.athlete_name || reg.fullName}
+                      </h3>
                     </div>
-                    <button
-                      onClick={() => toggleAttendance(reg.id, selectedDate)}
-                      className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-sm ${buttonStyle}`}
-                    >
-                      {buttonText}
-                    </button>
+
+                    <div className="flex items-center space-x-1.5 w-full sm:w-auto justify-end flex-wrap gap-y-1">
+                      {/* Botão Presente (P) */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetAthleteStatus(reg.id, 'presente')}
+                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          currentStatus === 'presente'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        ✓ Presente (P)
+                      </button>
+
+                      {/* Botão Falta Justificada (FJ) */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetAthleteStatus(reg.id, 'justificado')}
+                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          currentStatus === 'justificado'
+                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                            : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                        }`}
+                      >
+                        FJ Justificada
+                      </button>
+
+                      {/* Botão Falta Não Justificada (FNJ) */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetAthleteStatus(reg.id, 'injustificado')}
+                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          currentStatus === 'injustificado'
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                        }`}
+                      >
+                        ✕ FNJ Não Justificada
+                      </button>
+
+                      {/* Botão Lesão (L) */}
+                      <button
+                        type="button"
+                        onClick={() => handleSetAthleteStatus(reg.id, 'lesao')}
+                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          currentStatus === 'lesao'
+                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                            : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                        }`}
+                      >
+                        🤕 Lesão (L)
+                      </button>
+                    </div>
                   </div>
                 );
               });
@@ -649,10 +854,11 @@ export default function Dashboard({ onLogout }) {
                     onChange={(e) => setNewEventClass(e.target.value)}
                     className="w-full p-2.5 border rounded-xl text-xs bg-white"
                   >
-                    <option value="Formação infantil">Formação infantil</option>
-                    <option value="Formação geral">Formação geral</option>
-                    <option value="Formação avançada">Formação avançada</option>
-                    <option value="Representação">Representação</option>
+                    <option value="Spark">Spark</option>
+                    <option value="Flame">Flame</option>
+                    <option value="Fusion">Fusion</option>
+                    <option value="Thunder">Thunder</option>
+                    <option value="Firestorm">Firestorm</option>
                   </select>
                 </div>
                 <div className="sm:col-span-3">
