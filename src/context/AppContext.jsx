@@ -163,38 +163,29 @@ export function AppProvider({ children }) {
   // Submeter nova inscrição no Supabase
   const addRegistration = async (formData) => {
     const assignedCode = generateSCSCode();
+    const generatedId = typeof crypto !== 'undefined' && crypto.randomUUID 
+      ? crypto.randomUUID() 
+      : `reg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
     const newReg = {
+      id: generatedId,
       status: 'pending',
-      assignedClass: 'Formação geral',
       assigned_class: 'Formação geral',
-      accessCode: assignedCode,
       access_code: assignedCode,
-      athleteName: formData.athleteName || '',
-      athlete_name: formData.athleteName || '',
-      birthDate: formData.birthDate || '',
-      birth_date: formData.birthDate || '',
+      athlete_name: formData.athlete_name || formData.athleteName || '',
+      birth_date: formData.birth_date || formData.birthDate || '',
       gender: formData.gender || 'Masculino',
-      athleteCC: formData.athleteCC || '',
-      athlete_cc: formData.athleteCC || '',
-      athleteNIF: formData.athleteNIF || '',
-      athlete_nif: formData.athleteNIF || '',
-      parentName: formData.parentName || '',
-      parent_name: formData.parentName || '',
-      parentCC: formData.parentCC || '',
-      parent_cc: formData.parentCC || '',
-      parentNIF: formData.parentNIF || '',
-      parent_nif: formData.parentNIF || '',
+      athlete_cc: formData.athlete_cc || formData.athleteCC || '',
+      athlete_nif: formData.athlete_nif || formData.athleteNIF || '',
+      parent_name: formData.parent_name || formData.parentName || '',
+      parent_cc: formData.parent_cc || formData.parentCC || '',
       email: formData.email || '',
       phone: formData.phone || '',
       address: formData.address || '',
-      postalCode: formData.postalCode || '',
-      postal_code: formData.postalCode || '',
+      postal_code: formData.postal_code || formData.postalCode || '',
       city: formData.city || '',
-      memberNumber: formData.memberNumber || '',
-      member_number: formData.memberNumber || '',
-      memberType: formData.memberType || 'Atleta',
-      member_type: formData.memberType || 'Atleta',
+      member_number: formData.member_number || formData.memberNumber || '',
+      member_type: formData.member_type || formData.memberType || 'Atleta',
       tracksuitSize: formData.tracksuitSize || 'Não pretendo / Não preciso',
       officialTshirtSize: formData.officialTshirtSize || 'Não pretendo / Não preciso',
       redTshirtSize: formData.redTshirtSize || 'Não pretendo / Não preciso',
@@ -243,13 +234,11 @@ export function AppProvider({ children }) {
       }
     } else {
       const athlete = registrations.find((r) => r.id === id);
-      const finalCode = athlete?.accessCode || athlete?.access_code || generateSCSCode();
+      const finalCode = athlete?.access_code || athlete?.accessCode || generateSCSCode();
 
       const updates = {
         status: 'accepted',
-        assignedClass: assignedClass,
         assigned_class: assignedClass,
-        accessCode: finalCode,
         access_code: finalCode,
       };
 
@@ -281,10 +270,7 @@ export function AppProvider({ children }) {
   const updateRegistrationByParent = async (id, updatedData) => {
     const payload = {
       ...updatedData,
-      athlete_nif: updatedData.athleteNIF || updatedData.athlete_nif || '',
-      athleteNIF: updatedData.athleteNIF || updatedData.athlete_nif || '',
-      parent_nif: updatedData.parentNIF || updatedData.parent_nif || '',
-      parentNIF: updatedData.parentNIF || updatedData.parent_nif || '',
+      athlete_nif: updatedData.athlete_nif || updatedData.athleteNIF || '',
     };
 
     try {
@@ -308,7 +294,7 @@ export function AppProvider({ children }) {
     const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
     const registration = registrations.find((reg) => {
-      const dbCodeRaw = reg.accessCode || reg.access_code || '';
+      const dbCodeRaw = reg.access_code || reg.accessCode || '';
       const cleanDbCode = dbCodeRaw.toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
       return cleanDbCode === cleanInput && cleanDbCode.length > 0;
     });
@@ -382,7 +368,6 @@ export function AppProvider({ children }) {
       date: eventData.date,
       target_class: fallbackTargetClass,
       target_classes: targetClassesList,
-      targetClasses: targetClassesList,
       schedules: schedulesList
     };
 

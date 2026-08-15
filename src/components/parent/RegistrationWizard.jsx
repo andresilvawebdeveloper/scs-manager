@@ -158,33 +158,80 @@ export default function RegistrationWizard({ onBack }) {
   };
 
   const handleSubmitFinal = async () => {
-    const result = await addRegistration(formData);
-    setFeedback(result);
+    try {
+      // Objeto formatado exclusivamente com as colunas que existem na base de dados
+      const payload = {
+        athlete_name: formData.athleteName,
+        birth_date: formData.birthDate,
+        gender: formData.gender,
+        athlete_cc: formData.athleteCC,
+        athlete_nif: formData.athleteNIF,
+        parent_name: formData.parentName,
+        parent_cc: formData.parentCC,
+        email: formData.email,
+        phone: formData.phone,
+        address: formData.address,
+        postal_code: formData.postalCode,
+        city: formData.city,
+        member_number: formData.memberNumber,
+        member_type: formData.memberType,
+        tracksuitSize: formData.tracksuitSize,
+        officialTshirtSize: formData.officialTshirtSize,
+        redTshirtSize: formData.redTshirtSize,
+        yellowTshirtSize: formData.yellowTshirtSize,
+        adultClassesInterest: formData.adultClassesInterest,
+        adultClassesParticipants: formData.adultClassesParticipants,
+        adultClassesPaymentMode: formData.adultClassesPaymentMode,
+      };
+
+      const result = await addRegistration(payload);
+
+      if (result && result.success) {
+        setFeedback(result);
+      } else {
+        setError(result?.message || 'Erro ao submeter a inscrição. Tente novamente.');
+      }
+    } catch (err) {
+      setError('Ocorreu um erro inesperado: ' + err.message);
+    }
   };
 
   if (feedback) {
+    const isSuccess = feedback.success;
+
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 px-4">
         <div className="max-w-md w-full bg-white rounded-2xl shadow-xl p-8 text-center border-t-4 border-clubRed space-y-4">
-          <div className="w-12 h-12 bg-emerald-50 text-emerald-600 rounded-full flex items-center justify-center mx-auto text-xl">
-            ✓
+          <div className={`w-12 h-12 rounded-full flex items-center justify-center mx-auto text-xl ${
+            isSuccess ? 'bg-emerald-50 text-emerald-600' : 'bg-rose-50 text-rose-600'
+          }`}>
+            {isSuccess ? '✓' : '✕'}
           </div>
-          <h2 className="text-xl font-bold text-gray-900">Inscrição Submetida com Sucesso!</h2>
+
+          <h2 className="text-xl font-bold text-gray-900">
+            {isSuccess ? 'Inscrição Submetida com Sucesso!' : 'Ocorreu um Erro'}
+          </h2>
           
-          <div className="text-xs text-gray-600 space-y-2 text-left bg-gray-50 p-4 rounded-xl border border-gray-100 leading-relaxed">
-            <p><strong>O que acontece agora?</strong></p>
-            <p>1. O Sport Clube Sanjoanense irá analisar e revisar a ficha de inscrição do atleta.</p>
-            <p>
-              2. <strong>Enviaremos um email de notificação para:</strong> <br />
-              <span className="font-semibold text-clubRed">{formData.email}</span>
+          {isSuccess ? (
+            <div className="text-xs text-gray-600 space-y-2 text-left bg-gray-50 p-4 rounded-xl border border-gray-100 leading-relaxed">
+              <p><strong>O que acontece agora?</strong></p>
+              <p>1. O Sport Clube Sanjoanense irá analisar e revisar a ficha de inscrição do atleta.</p>
+              <p>
+                2. <strong>Enviaremos um email de notificação para:</strong> <br />
+                <span className="font-semibold text-clubRed">{formData.email}</span>
+              </p>
+              <p>3. Assim que a inscrição for aceite, receberá nesse mesmo email o seu <strong>Código de Acesso</strong> exclusivo para entrar na Área Pessoal.</p>
+              <p>4. Caso seja necessário corrigir algum dado, a ficha será devolvida para que possa revisá-la e alterá-la.</p>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-600 bg-red-50 p-4 rounded-xl border border-red-100">
+              {feedback.message || 'Não foi possível gravar a inscrição. Verifique os dados e tente novamente.'}
             </p>
-            <p>3. Assim que a inscrição for aceite, receberá nesse mesmo email o seu <strong>Código de Acesso</strong> exclusivo para entrar na Área Pessoal.</p>
-            <p>4. Caso seja necessário corrigir algum dado, a ficha será devolvida para que possa revisá-la e alterá-la.</p>
-          </div>
+          )}
 
           <button
             onClick={() => {
-              if (feedback.success) {
+              if (isSuccess) {
                 onBack();
               } else {
                 setFeedback(null);
@@ -193,7 +240,7 @@ export default function RegistrationWizard({ onBack }) {
             }}
             className="w-full py-3.5 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl text-sm transition shadow"
           >
-            {feedback.success ? 'Voltar ao Início' : 'Tentar Novamente'}
+            {isSuccess ? 'Voltar ao Início' : 'Tentar Novamente'}
           </button>
         </div>
       </div>
