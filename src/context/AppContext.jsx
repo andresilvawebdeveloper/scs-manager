@@ -24,6 +24,7 @@ const ensureArray = (val) => {
 export function AppProvider({ children }) {
   const [registrations, setRegistrations] = useState([]);
   const [events, setEvents] = useState([]);
+  const [currentCoach, setCurrentCoach] = useState(null);
 
   const [attendances, setAttendances] = useState(() => {
     const saved = localStorage.getItem('scs_attendances');
@@ -45,11 +46,60 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Carregar atletas e eventos ao iniciar a aplicação
+  // Carregar dados iniciais e subscrever a alterações de sessão no Supabase
   useEffect(() => {
     fetchRegistrations();
     fetchEvents();
+
+    // 1. Verificar sessão ativa no Supabase Auth
+    const checkActiveSession = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) {
+        await fetchCoachProfile(session.user);
+      }
+    };
+
+    checkActiveSession();
+
+    // 2. Escutar alterações do estado de autenticação
+    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (session?.user) {
+        await fetchCoachProfile(session.user);
+      } else {
+        setCurrentCoach(null);
+      }
+    });
+
+    return () => {
+      authListener?.subscription?.unsubscribe();
+    };
   }, []);
+
+  // Procurar o perfil/role do treinador na tabela 'coaches'
+  const fetchCoachProfile = async (authUser) => {
+    try {
+      const { data: coachProfile, error } = await supabase
+        .from('coaches')
+        .select('*')
+        .eq('id', authUser.id)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Erro ao procurar perfil na tabela coaches:', error.message);
+      }
+
+      const coachData = {
+        id: authUser.id,
+        email: authUser.email,
+        name: coachProfile?.email || authUser.email,
+        role: coachProfile?.role || (authUser.email === 'joana.meireles@gmail.com' ? 'admin' : 'coach'),
+      };
+
+      setCurrentCoach(coachData);
+    } catch (err) {
+      console.error('Erro ao carregar dados do treinador:', err.message);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('scs_attendances', JSON.stringify(attendances));
@@ -316,20 +366,31 @@ export function AppProvider({ children }) {
     return { success: true, registration };
   };
 
-  // Login do Treinador
-  const loginCoach = (email, password) => {
-    const authorizedCoaches = [
-      { email: "treinador@ginastica.com", password: "password123", name: "Treinador Principal" }
-    ];
+  // Login do Treinador via Supabase Auth
+  const loginCoach = async (email, password) => {
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
-    const coach = authorizedCoaches.find(
-      (c) => c.email.toLowerCase() === email.toLowerCase() && c.password === password
-    );
+      if (error) {
+        return { success: false, message: 'Email ou password incorretos.' };
+      }
 
-    if (coach) {
-      return { success: true, coach };
+      await fetchCoachProfile(data.user);
+
+      return { success: true, coach: data.user };
+    } catch (err) {
+      console.error('Erro na autenticação:', err.message);
+      return { success: false, message: 'Erro ao efetuar login: ' + err.message };
     }
-    return { success: false, message: "Email ou password incorretos." };
+  };
+
+  // Terminar Sessão do Treinador
+  const logoutCoach = async () => {
+    await supabase.auth.signOut();
+    setCurrentCoach(null);
   };
 
   // Marcação de Presenças (Aceita definição direta de estado ou modo ciclo)
@@ -474,12 +535,14 @@ export function AppProvider({ children }) {
         eventAttendances,
         adultClasses,
         messages,
+        currentCoach,
         addRegistration,
         updateRegistrationStatus,
         removeAcceptedAthlete,
         updateRegistrationByParent,
         loginParentByCode,
         loginCoach,
+        logoutCoach,
         toggleAttendance,
         addEvent,
         deleteEvent,

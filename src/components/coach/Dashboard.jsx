@@ -6,6 +6,7 @@ import { saveAs } from 'file-saver';
 
 export default function Dashboard({ onLogout }) {
   const { 
+    currentCoach,
     registrations, 
     fetchRegistrations,
     updateRegistrationStatus, 
@@ -23,6 +24,8 @@ export default function Dashboard({ onLogout }) {
     messages,
     sendMessage
   } = useApp();
+
+  const isAdmin = currentCoach?.role === 'admin';
 
   useEffect(() => {
     if (fetchRegistrations) {
@@ -49,7 +52,24 @@ export default function Dashboard({ onLogout }) {
   const [chatText, setChatText] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
 
-  // Estado local sincronizado para garanitr fidelidade visual e na exportação
+  // Estados para Gestão do Perfil do Treinador
+  const [profileEmail, setProfileEmail] = useState(currentCoach?.email || '');
+  const [profilePassword, setProfilePassword] = useState('');
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+
+  useEffect(() => {
+    if (currentCoach?.email) {
+      setProfileEmail(currentCoach.email);
+    }
+  }, [currentCoach]);
+
+  // Estado para o Switch no separador de Atletas Ativos ('athletes' | 'birthdays')
+  const [acceptedSubView, setAcceptedSubView] = useState('athletes');
+
+  // Estado para filtro de aniversários (0 = Todos, 1 a 12 = Meses)
+  const [selectedBirthdayMonth, setSelectedBirthdayMonth] = useState('all');
+
+  // Estado local sincronizado para garantir fidelidade visual e na exportação
   const [localAttendances, setLocalAttendances] = useState({});
 
   useEffect(() => {
@@ -214,6 +234,56 @@ export default function Dashboard({ onLogout }) {
     setIsSendingChat(false);
   };
 
+  // Função para Atualizar os Dados Pessoais do Treinador no Supabase
+  const handleUpdateCoachProfile = async (e) => {
+    e.preventDefault();
+    setIsUpdatingProfile(true);
+
+    try {
+      const updates = {};
+      
+      if (profileEmail && profileEmail !== currentCoach?.email) {
+        updates.email = profileEmail;
+      }
+      if (profilePassword.trim()) {
+        if (profilePassword.length < 6) {
+          alert('A nova password deve conter pelo menos 6 caracteres.');
+          setIsUpdatingProfile(false);
+          return;
+        }
+        updates.password = profilePassword;
+      }
+
+      if (Object.keys(updates).length === 0) {
+        alert('Nenhuma alteração detetada.');
+        setIsUpdatingProfile(false);
+        return;
+      }
+
+      const { data, error } = await supabase.auth.updateUser(updates);
+
+      if (error) {
+        throw error;
+      }
+
+      // Se o email foi alterado, atualiza também a tabela 'coaches' se existir
+      if (updates.email && currentCoach?.id) {
+        await supabase
+          .from('coaches')
+          .update({ email: updates.email })
+          .eq('id', currentCoach.id);
+      }
+
+      alert('Dados atualizados com sucesso! ' + (updates.email ? 'Se alterou o email, confirme o novo endereço na caixa de entrada.' : ''));
+      setProfilePassword('');
+    } catch (err) {
+      console.error('Erro ao atualizar perfil:', err.message);
+      alert('Erro ao atualizar perfil: ' + err.message);
+    } finally {
+      setIsUpdatingProfile(false);
+    }
+  };
+
   const handleOpenPrivateChat = (email) => {
     setChatTarget(email);
     setActiveTab('communication');
@@ -233,6 +303,28 @@ export default function Dashboard({ onLogout }) {
       acc[className] = [];
     }
     acc[className].push(athlete);
+    return acc;
+  }, {});
+
+  // Nomes dos meses em Português
+  const monthNames = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+
+  // Agrupar Aniversários dos Atletas Ativos por Mês
+  const birthdaysByMonth = acceptedList.reduce((acc, athlete) => {
+    const birthDateRaw = athlete.birthDate || athlete.birth_date;
+    if (!birthDateRaw) return acc;
+
+    const parts = birthDateRaw.split('-'); // Esperado AAAA-MM-DD
+    if (parts.length >= 2) {
+      const monthIdx = parseInt(parts[1], 10) - 1; // 0-11
+      if (!isNaN(monthIdx) && monthIdx >= 0 && monthIdx < 12) {
+        if (!acc[monthIdx]) acc[monthIdx] = [];
+        acc[monthIdx].push(athlete);
+      }
+    }
     return acc;
   }, {});
 
@@ -405,7 +497,7 @@ export default function Dashboard({ onLogout }) {
 
       {/* Tabs */}
       <div className="max-w-4xl mx-auto px-4 mt-6">
-        <div className="grid grid-cols-6 gap-1 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-200 text-center">
+        <div className="grid grid-cols-7 gap-1 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-200 text-center">
           <button
             onClick={() => { setActiveTab('pending'); fetchRegistrations && fetchRegistrations(); }}
             className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
@@ -453,6 +545,14 @@ export default function Dashboard({ onLogout }) {
             }`}
           >
             Chat 💬
+          </button>
+          <button
+            onClick={() => setActiveTab('profile')}
+            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
+              activeTab === 'profile' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Perfil 👤
           </button>
         </div>
       </div>
@@ -504,35 +604,45 @@ export default function Dashboard({ onLogout }) {
                       </div>
                     </div>
 
-                    <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
-                      <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
-                      <select
-                        value={selectedClasses[reg.id] || 'Spark'}
-                        onChange={(e) => handleClassChange(reg.id, e.target.value)}
-                        className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
-                      >
-                        <option value="Spark">Spark (Formação Infantil)</option>
-                        <option value="Flame">Flame (Formação Geral)</option>
-                        <option value="Fusion">Fusion (Formação Avançada)</option>
-                        <option value="Thunder">Thunder (Pré-Representação)</option>
-                        <option value="Firestorm">Firestorm (Representação)</option>
-                      </select>
-                    </div>
+                    {isAdmin ? (
+                      <>
+                        <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
+                          <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
+                          <select
+                            value={selectedClasses[reg.id] || 'Spark'}
+                            onChange={(e) => handleClassChange(reg.id, e.target.value)}
+                            className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
+                          >
+                            <option value="Spark">Spark (Formação Infantil)</option>
+                            <option value="Flame">Flame (Formação Geral)</option>
+                            <option value="Fusion">Fusion (Formação Avançada)</option>
+                            <option value="Thunder">Thunder (Pré-Representação)</option>
+                            <option value="Firestorm">Firestorm (Representação)</option>
+                          </select>
+                        </div>
 
-                    <div className="flex space-x-3">
-                      <button
-                        onClick={() => handleAcceptWithClass(reg.id)}
-                        className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                      >
-                        Aceitar e Atribuir Turma
-                      </button>
-                      <button
-                        onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
-                        className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                      >
-                        Rejeitar & Eliminar
-                      </button>
-                    </div>
+                        <div className="flex space-x-3">
+                          <button
+                            onClick={() => handleAcceptWithClass(reg.id)}
+                            className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                          >
+                            Aceitar e Atribuir Turma
+                          </button>
+                          <button
+                            onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
+                            className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                          >
+                            Rejeitar & Eliminar
+                          </button>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="p-3 bg-gray-50 rounded-xl text-center border border-gray-200">
+                        <span className="text-xs text-gray-500 font-medium">
+                          🔒 Modo Leitura: Apenas a Treinadora Principal pode aprovar ou rejeitar fichas.
+                        </span>
+                      </div>
+                    )}
                   </div>
                 );
               })
@@ -540,154 +650,277 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: ATLETAS ACEITES ORGANIZADOS POR TURMA */}
+        {/* SECÇÃO: ATLETAS ACEITES ORGANIZADOS POR TURMA OU ANIVERSÁRIOS (COM SWITCH) */}
         {activeTab === 'accepted' && (
           <div className="space-y-6">
-            <h2 className="font-bold text-gray-800 text-sm">Atletas Ativos no Plantel</h2>
             
-            {acceptedList.length === 0 ? (
-              <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 text-center space-y-2">
-                <p className="text-sm font-semibold text-gray-700">Nenhum atleta ativo</p>
-              </div>
-            ) : (
-              Object.entries(groupedAcceptedAthletes).map(([className, athletes]) => (
-                <div key={className} className="space-y-3">
-                  
-                  {/* Cabeçalho do Grupo da Turma */}
-                  <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-5 py-3 rounded-xl flex justify-between items-center shadow-sm">
-                    <div className="flex items-center space-x-2">
-                      <span className="text-xs bg-clubRed px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider">
-                        Turma
-                      </span>
-                      <h3 className="font-bold text-sm">{className}</h3>
-                    </div>
-                    <span className="text-xs bg-white/10 px-3 py-1 rounded-lg font-semibold text-gray-200 border border-white/10">
-                      {athletes.length} {athletes.length === 1 ? 'Atleta' : 'Atletas'}
-                    </span>
+            {/* SWITCH DE NAVEGAÇÃO ENTRE VISTAS */}
+            <div className="flex bg-gray-200/80 p-1 rounded-xl w-full sm:w-auto self-start border border-gray-300">
+              <button
+                onClick={() => setAcceptedSubView('athletes')}
+                className={`flex-1 sm:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                  acceptedSubView === 'athletes'
+                    ? 'bg-white text-gray-900 shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                🏃‍♂️ Atletas Ativos na Equipa
+              </button>
+              <button
+                onClick={() => setAcceptedSubView('birthdays')}
+                className={`flex-1 sm:flex-initial px-4 py-2 text-xs font-bold rounded-lg transition-all ${
+                  acceptedSubView === 'birthdays'
+                    ? 'bg-clubRed text-white shadow-sm'
+                    : 'text-gray-600 hover:text-gray-900'
+                }`}
+              >
+                🎂 Aniversários
+              </button>
+            </div>
+
+            {/* VISTA 1: LISTA DE ATLETAS ATIVOS ORGANIZADOS POR TURMA */}
+            {acceptedSubView === 'athletes' && (
+              <div className="space-y-6">
+                <h2 className="font-bold text-gray-800 text-sm">Atletas Ativos na Equipa</h2>
+                
+                {acceptedList.length === 0 ? (
+                  <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 text-center space-y-2">
+                    <p className="text-sm font-semibold text-gray-700">Nenhum atleta ativo</p>
                   </div>
+                ) : (
+                  Object.entries(groupedAcceptedAthletes).map(([className, athletes]) => (
+                    <div key={className} className="space-y-3">
+                      
+                      {/* Cabeçalho do Grupo da Turma */}
+                      <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-5 py-3 rounded-xl flex justify-between items-center shadow-sm">
+                        <div className="flex items-center space-x-2">
+                          <span className="text-xs bg-clubRed px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider">
+                            Turma
+                          </span>
+                          <h3 className="font-bold text-sm">{className}</h3>
+                        </div>
+                        <span className="text-xs bg-white/10 px-3 py-1 rounded-lg font-semibold text-gray-200 border border-white/10">
+                          {athletes.length} {athletes.length === 1 ? 'Atleta' : 'Atletas'}
+                        </span>
+                      </div>
 
-                  {/* Lista de Atletas da Turma */}
-                  <div className="space-y-3">
-                    {athletes.map((reg) => {
-                      const parentEmail = reg.email || reg.parentEmail || reg.parent_email;
-                      const isExpanded = expandedAthletes[reg.id] || false;
-                      const name = reg.athleteName || reg.athlete_name || reg.fullName;
+                      {/* Lista de Atletas da Turma */}
+                      <div className="space-y-3">
+                        {athletes.map((reg) => {
+                          const parentEmail = reg.email || reg.parentEmail || reg.parent_email;
+                          const isExpanded = expandedAthletes[reg.id] || false;
+                          const name = reg.athleteName || reg.athlete_name || reg.fullName;
 
-                      return (
-                        <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                          
-                          <div className="flex justify-between items-start">
-                            <div className="space-y-1">
-                              <h3 className="font-bold text-gray-900 text-base">{name}</h3>
-                              <p className="text-xs text-gray-500">
-                                Turma: <span className="font-semibold text-clubRed">{className}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
-                              </p>
-                              <p className="text-[11px] text-gray-400 font-mono">
-                                Código de Acesso: <span className="font-semibold text-gray-700">{reg.access_code || reg.accessCode || 'N/A'}</span>
-                              </p>
-                            </div>
-
-                            <div className="flex items-center space-x-2">
-                              <button
-                                onClick={() => toggleExpandAthlete(reg.id)}
-                                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
-                              >
-                                <span>{isExpanded ? '▲ Ocultar Ficha' : '▼ Ver Ficha Completa'}</span>
-                              </button>
-
-                              {parentEmail && (
-                                <button
-                                  onClick={() => handleOpenPrivateChat(parentEmail)}
-                                  className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
-                                >
-                                  <span>💬 Chat</span>
-                                </button>
-                              )}
-
-                              <button
-                                onClick={() => {
-                                  if (window.confirm(`Tem certeza que pretende remover o atleta ${name}?`)) {
-                                    removeAcceptedAthlete(reg.id);
-                                  }
-                                }}
-                                className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
-                              >
-                                Remover
-                              </button>
-                            </div>
-                          </div>
-
-                          {isExpanded && (
-                            <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
-                              <div className="space-y-1">
-                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                  👤 Dados do Atleta
-                                </h4>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
-                                  <p><strong>Nascimento:</strong> {reg.birthDate || reg.birth_date || 'N/D'}</p>
-                                  <p><strong>Sexo:</strong> {reg.gender || 'N/D'}</p>
-                                  <p><strong>Cartão de Cidadão:</strong> {reg.athleteCC || reg.athlete_cc || 'N/D'}</p>
-                                  <p><strong>NIF Atleta:</strong> {reg.athleteNIF || reg.athlete_nif || 'N/D'}</p>
-                                </div>
-                              </div>
-
-                              <div className="space-y-1">
-                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                  👨‍👩‍👧 Encarregado de Educação & Contactos
-                                </h4>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                                  <p><strong>Nome do EE:</strong> {reg.parentName || reg.parent_name || 'N/D'}</p>
-                                  <p><strong>CC do EE:</strong> {reg.parentCC || reg.parent_cc || 'N/D'}</p>
-                                  <p><strong>Email:</strong> {parentEmail || 'N/D'}</p>
-                                  <p><strong>Telemóvel:</strong> {reg.phone || 'N/D'}</p>
-                                  <p className="sm:col-span-2">
-                                    <strong>Morada:</strong> {reg.address || 'N/D'}, {reg.postalCode || reg.postal_code} {reg.city}
+                          return (
+                            <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                              
+                              <div className="flex justify-between items-start">
+                                <div className="space-y-1">
+                                  <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                                  <p className="text-xs text-gray-500">
+                                    Turma: <span className="font-semibold text-clubRed">{className}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
+                                  </p>
+                                  <p className="text-[11px] text-gray-400 font-mono">
+                                    Código de Acesso: <span className="font-semibold text-gray-700">{reg.access_code || reg.accessCode || 'N/A'}</span>
                                   </p>
                                 </div>
-                              </div>
 
-                              <div className="space-y-1">
-                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                  💳 Estatuto de Sócio
-                                </h4>
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                                  <p><strong>Nº de Sócio:</strong> {reg.memberNumber || reg.member_number || 'N/D'}</p>
-                                  <p><strong>Sócio Titular:</strong> {reg.memberType || reg.member_type || 'Atleta'}</p>
+                                <div className="flex items-center space-x-2">
+                                  <button
+                                    onClick={() => toggleExpandAthlete(reg.id)}
+                                    className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                                  >
+                                    <span>{isExpanded ? '▲ Ocultar Ficha' : '▼ Ver Ficha Completa'}</span>
+                                  </button>
+
+                                  {parentEmail && (
+                                    <button
+                                      onClick={() => handleOpenPrivateChat(parentEmail)}
+                                      className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                                    >
+                                      <span>💬 Chat</span>
+                                    </button>
+                                  )}
+
+                                  {isAdmin && (
+                                    <button
+                                      onClick={() => {
+                                        if (window.confirm(`Tem certeza que pretende remover o atleta ${name}?`)) {
+                                          removeAcceptedAthlete(reg.id);
+                                        }
+                                      }}
+                                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
+                                    >
+                                      Remover
+                                    </button>
+                                  )}
                                 </div>
                               </div>
 
-                              <div className="space-y-1">
-                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                  🎽 Equipamento e Vestuário
-                                </h4>
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-gray-700">
-                                  <p><strong>Fato de Treino:</strong> {reg.tracksuitSize || reg.tracksuit_size || 'Não pretendo'}</p>
-                                  <p><strong>T-shirt Oficial:</strong> {reg.officialTshirtSize || reg.official_tshirt_size || 'Não pretendo'}</p>
-                                  <p><strong>T-shirt Vermelha:</strong> {reg.redTshirtSize || reg.red_tshirt_size || 'Não pretendo'}</p>
-                                  <p><strong>T-shirt Amarela:</strong> {reg.yellowTshirtSize || reg.yellow_tshirt_size || 'Não pretendo'}</p>
-                                </div>
-                              </div>
+                              {isExpanded && (
+                                <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
+                                  <div className="space-y-1">
+                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                      👤 Dados do Atleta
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
+                                      <p><strong>Nascimento:</strong> {reg.birthDate || reg.birth_date || 'N/D'}</p>
+                                      <p><strong>Sexo:</strong> {reg.gender || 'N/D'}</p>
+                                      <p><strong>Cartão de Cidadão:</strong> {reg.athleteCC || reg.athlete_cc || 'N/D'}</p>
+                                      <p><strong>NIF Atleta:</strong> {reg.athleteNIF || reg.athlete_nif || 'N/D'}</p>
+                                    </div>
+                                  </div>
 
-                              <div className="space-y-1">
-                                <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                  🤸 Aulas para Encarregados
-                                </h4>
-                                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
-                                  <p><strong>Interesse:</strong> {reg.adultClassesInterest || reg.adult_classes_interest || 'Não'}</p>
-                                  <p><strong>Participantes:</strong> {reg.adultClassesParticipants || reg.adult_classes_participants || 'N/D'}</p>
-                                  <p><strong>Pagamento:</strong> {reg.adultClassesPaymentMode || reg.adult_classes_payment_mode || 'N/D'}</p>
+                                  <div className="space-y-1">
+                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                      👨‍👩‍👧 Encarregado de Educação & Contactos
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
+                                      <p><strong>Nome do EE:</strong> {reg.parentName || reg.parent_name || 'N/D'}</p>
+                                      <p><strong>CC do EE:</strong> {reg.parentCC || reg.parent_cc || 'N/D'}</p>
+                                      <p><strong>Email:</strong> {parentEmail || 'N/D'}</p>
+                                      <p><strong>Telemóvel:</strong> {reg.phone || 'N/D'}</p>
+                                      <p className="sm:col-span-2">
+                                        <strong>Morada:</strong> {reg.address || 'N/D'}, {reg.postalCode || reg.postal_code} {reg.city}
+                                      </p>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                      💳 Estatuto de Sócio
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
+                                      <p><strong>Nº de Sócio:</strong> {reg.memberNumber || reg.member_number || 'N/D'}</p>
+                                      <p><strong>Sócio Titular:</strong> {reg.memberType || reg.member_type || 'Atleta'}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                      🎽 Equipamento e Vestuário
+                                    </h4>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-gray-700">
+                                      <p><strong>Fato de Treino:</strong> {reg.tracksuitSize || reg.tracksuit_size || 'Não pretendo'}</p>
+                                      <p><strong>T-shirt Oficial:</strong> {reg.officialTshirtSize || reg.official_tshirt_size || 'Não pretendo'}</p>
+                                      <p><strong>T-shirt Vermelha:</strong> {reg.redTshirtSize || reg.red_tshirt_size || 'Não pretendo'}</p>
+                                      <p><strong>T-shirt Amarela:</strong> {reg.yellowTshirtSize || reg.yellow_tshirt_size || 'Não pretendo'}</p>
+                                    </div>
+                                  </div>
+
+                                  <div className="space-y-1">
+                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                      🤸 Aulas para Encarregados
+                                    </h4>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
+                                      <p><strong>Interesse:</strong> {reg.adultClassesInterest || reg.adult_classes_interest || 'Não'}</p>
+                                      <p><strong>Participantes:</strong> {reg.adultClassesParticipants || reg.adult_classes_participants || 'N/D'}</p>
+                                      <p><strong>Pagamento:</strong> {reg.adultClassesPaymentMode || reg.adult_classes_payment_mode || 'N/D'}</p>
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
+                              )}
+
                             </div>
-                          )}
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
 
-                        </div>
-                      );
-                    })}
+            {/* VISTA 2: PAINEL DE ANIVERSÁRIOS */}
+            {acceptedSubView === 'birthdays' && (
+              <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-gray-100 pb-3">
+                  <div className="flex items-center space-x-2">
+                    <span className="text-lg">🎂</span>
+                    <div>
+                      <h2 className="font-bold text-gray-900 text-sm">Aniversários dos Atletas</h2>
+                      <p className="text-[11px] text-gray-500">Lista organizada e filtrável por mês</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center space-x-2 w-full sm:w-auto">
+                    <label className="text-xs font-semibold text-gray-600 whitespace-nowrap">Filtrar Mês:</label>
+                    <select
+                      value={selectedBirthdayMonth}
+                      onChange={(e) => setSelectedBirthdayMonth(e.target.value)}
+                      className="p-2 border border-gray-300 rounded-xl text-xs font-semibold bg-gray-50 focus:outline-none w-full sm:w-auto"
+                    >
+                      <option value="all">📅 Todos os Meses</option>
+                      {monthNames.map((name, idx) => (
+                        <option key={idx} value={idx}>
+                          {name} ({birthdaysByMonth[idx]?.length || 0})
+                        </option>
+                      ))}
+                    </select>
                   </div>
                 </div>
-              ))
+
+                {/* Lista de Aniversários */}
+                <div className="space-y-4">
+                  {(() => {
+                    const monthsToDisplay = selectedBirthdayMonth === 'all' 
+                      ? Array.from({ length: 12 }, (_, i) => i) 
+                      : [parseInt(selectedBirthdayMonth, 10)];
+
+                    const hasBirthdays = monthsToDisplay.some(m => birthdaysByMonth[m] && birthdaysByMonth[m].length > 0);
+
+                    if (!hasBirthdays) {
+                      return (
+                        <p className="text-xs text-gray-400 py-2 text-center">
+                          Nenhum aniversário registado para o período selecionado.
+                        </p>
+                      );
+                    }
+
+                    return monthsToDisplay.map((mIdx) => {
+                      const list = birthdaysByMonth[mIdx] || [];
+                      if (list.length === 0) return null;
+
+                      // Ordenar por dia do mês
+                      const sortedList = [...list].sort((a, b) => {
+                        const dayA = parseInt((a.birthDate || a.birth_date || '').split('-')[2] || 0, 10);
+                        const dayB = parseInt((b.birthDate || b.birth_date || '').split('-')[2] || 0, 10);
+                        return dayA - dayB;
+                      });
+
+                      return (
+                        <div key={mIdx} className="space-y-2">
+                          <h3 className="text-xs font-bold text-clubRed uppercase tracking-wider bg-red-50 px-3 py-1.5 rounded-lg inline-block">
+                            {monthNames[mIdx]}
+                          </h3>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                            {sortedList.map((athlete) => {
+                              const name = athlete.athleteName || athlete.athlete_name || athlete.fullName;
+                              const birth = athlete.birthDate || athlete.birth_date || 'N/D';
+                              const parts = birth.split('-');
+                              const formattedDayMonth = parts.length === 3 ? `${parts[2]}/${parts[1]}` : birth;
+
+                              return (
+                                <div key={athlete.id} className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center">
+                                  <div className="truncate pr-2">
+                                    <p className="font-bold text-xs text-gray-800 truncate">{name}</p>
+                                    <p className="text-[10px] text-gray-500">Nascimento: {birth}</p>
+                                  </div>
+                                  <span className="text-xs font-extrabold text-clubRed bg-white px-2 py-1 rounded-md border border-gray-200 whitespace-nowrap shadow-2xs">
+                                    🎂 {formattedDayMonth}
+                                  </span>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
             )}
+
           </div>
         )}
 
@@ -1001,6 +1234,62 @@ export default function Dashboard({ onLogout }) {
               </button>
             </form>
 
+          </div>
+        )}
+
+        {/* SECÇÃO: PERFIL DO TREINADOR */}
+        {activeTab === 'profile' && (
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-6">
+            <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
+              <div>
+                <h2 className="font-bold text-gray-900 text-base">Dados Pessoais do Treinador</h2>
+                <p className="text-xs text-gray-500">Atualize o seu endereço de email ou a sua palavra-passe de acesso</p>
+              </div>
+              <span className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase ${isAdmin ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`}>
+                {isAdmin ? '👑 Administrador' : '👟 Treinador'}
+              </span>
+            </div>
+
+            <form onSubmit={handleUpdateCoachProfile} className="space-y-4 max-w-lg">
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Endereço de Email:
+                </label>
+                <input
+                  type="email"
+                  value={profileEmail}
+                  onChange={(e) => setProfileEmail(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-clubRed"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold text-gray-700 mb-1">
+                  Nova Palavra-passe:
+                </label>
+                <input
+                  type="password"
+                  placeholder="Deixe em branco para não alterar"
+                  value={profilePassword}
+                  onChange={(e) => setProfilePassword(e.target.value)}
+                  className="w-full p-3 border border-gray-300 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-clubRed"
+                />
+                <span className="text-[10px] text-gray-400 block mt-1">
+                  Mínimo de 6 caracteres se desejar alterar.
+                </span>
+              </div>
+
+              <div className="pt-2">
+                <button
+                  type="submit"
+                  disabled={isUpdatingProfile}
+                  className="w-full sm:w-auto px-6 py-3 bg-clubRed hover:bg-red-700 text-white font-bold text-xs rounded-xl transition shadow disabled:opacity-50"
+                >
+                  {isUpdatingProfile ? 'A guardar alterações...' : 'Guardar Dados Pessoais'}
+                </button>
+              </div>
+            </form>
           </div>
         )}
 
