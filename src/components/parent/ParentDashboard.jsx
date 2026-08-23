@@ -29,15 +29,35 @@ export default function ParentDashboard({ registration, onLogout }) {
   // Turma atribuída ao filho/atleta
   const athleteClass = registration.assignedClass || registration.assigned_class || 'Formação geral';
 
-  // Filtrar eventos associados à turma do atleta
+  // Normalização de nomes de turmas para comparação robusta
+  const normalizeClassName = (name) => {
+    if (!name) return '';
+    const clean = name.toLowerCase().trim();
+    if (clean.includes('infantil') || clean === 'spark') return 'spark';
+    if (clean.includes('geral') || clean === 'flame') return 'flame';
+    if (clean.includes('avançada') || clean.includes('avancada') || clean === 'fusion') return 'fusion';
+    if (clean.includes('pré-representação') || clean.includes('pre-representacao') || clean === 'thunder') return 'thunder';
+    if (clean.includes('representação') || clean.includes('representacao') || clean === 'firestorm') return 'firestorm';
+    return clean;
+  };
+
+  const currentAthleteClassNorm = normalizeClassName(athleteClass);
+
+  // Filtrar eventos associados à turma do atleta (suporta arrays, strings separadas por vírgulas ou campos simples)
   const allEventsList = events || [];
   const myClassEvents = allEventsList.filter((event) => {
-    const targetClasses = event.targetClasses || [event.targetClass];
-    if (!targetClasses || targetClasses.length === 0) return true;
-    
-    return targetClasses.some(tc => 
-      tc && tc.toLowerCase().trim() === athleteClass.toLowerCase().trim()
-    );
+    let classesList = [];
+    if (Array.isArray(event.targetClasses)) {
+      classesList = event.targetClasses;
+    } else if (typeof event.targetClasses === 'string') {
+      classesList = event.targetClasses.split(',').map((c) => c.trim());
+    } else if (typeof event.targetClass === 'string') {
+      classesList = event.targetClass.split(',').map((c) => c.trim());
+    }
+
+    if (classesList.length === 0 || classesList.some((c) => c.toLowerCase().includes('todas'))) return true;
+
+    return classesList.some((tc) => normalizeClassName(tc) === currentAthleteClassNorm);
   });
 
   // Filtrar conversas: Mensagens do Canal Geral + Mensagens Privadas deste pai
@@ -388,11 +408,22 @@ export default function ParentDashboard({ registration, onLogout }) {
               myClassEvents.map((ev) => {
                 const isAttending = !!(eventAttendances && eventAttendances[`${ev.id}_${registration.id}`]);
 
+                // Obtenção flexível das propriedades de local e horários
+                const location = ev.location || ev.event_location || ev.place;
+                const eventTime = ev.time || ev.event_time || ev.startTime || ev.start_time;
+                const meetingTime = ev.meetingTime || ev.meeting_time || ev.pontoEncontro;
+
+                // Obtenção flexível de turmas do evento
+                let classesList = [];
+                if (Array.isArray(ev.targetClasses)) classesList = ev.targetClasses;
+                else if (typeof ev.targetClasses === 'string') classesList = ev.targetClasses.split(',').map(c => c.trim());
+                else if (typeof ev.targetClass === 'string') classesList = ev.targetClass.split(',').map(c => c.trim());
+
                 return (
                   <div key={ev.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                     <div className="flex justify-between items-start border-b border-gray-100 pb-3">
                       <div>
-                        <h3 className="font-bold text-gray-900 text-base">{ev.name}</h3>
+                        <h3 className="font-bold text-gray-900 text-base">{ev.name || ev.title}</h3>
                         <p className="text-xs text-gray-500 mt-0.5">
                           📅 Data: <strong className="text-gray-800">{ev.date}</strong>
                         </p>
@@ -403,36 +434,71 @@ export default function ParentDashboard({ registration, onLogout }) {
                     </div>
 
                     <div className="space-y-2 pt-1 text-xs">
-                      <div>
-                        <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
-                          Turmas Abrangidas:
+                      {/* LOCAL DO EVENTO */}
+                      <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+                        <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-0.5">
+                          📍 Local do Evento:
                         </span>
-                        <div className="flex flex-wrap gap-1">
-                          {(ev.targetClasses || [ev.targetClass]).map((tc, idx) => (
-                            <span 
-                              key={idx} 
-                              className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
-                                tc === athleteClass 
-                                  ? 'bg-red-50 text-clubRed border-red-200' 
-                                  : 'bg-gray-50 text-gray-600 border-gray-200'
-                              }`}
-                            >
-                              {tc}
-                            </span>
-                          ))}
-                        </div>
+                        <span className="text-gray-800 font-semibold">
+                          {location ? location : 'A definir pelo treinador'}
+                        </span>
                       </div>
 
-                      <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mt-2">
+                      {/* HORÁRIOS PROGRAMADOS / DETALHADOS */}
+                      <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                         <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
-                          Horários Programados:
+                          ⏰ Horários Programados:
                         </span>
-                        <ul className="list-disc list-inside text-gray-800 font-medium space-y-1">
-                          {(ev.schedules || ['Horário a confirmar pelo treinador']).map((sch, idx) => (
-                            <li key={idx}>{sch}</li>
-                          ))}
-                        </ul>
+                        
+                        {(eventTime || meetingTime) ? (
+                          <div className="space-y-1.5 text-gray-800">
+                            {eventTime && (
+                              <p className="flex items-center space-x-1.5">
+                                <span className="font-medium text-gray-600">Início do Evento:</span>
+                                <strong className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{eventTime}</strong>
+                              </p>
+                            )}
+                            {meetingTime && (
+                              <p className="flex items-center space-x-1.5">
+                                <span className="font-medium text-gray-600">Ponto de Encontro:</span>
+                                <strong className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{meetingTime}</strong>
+                              </p>
+                            )}
+                          </div>
+                        ) : (
+                          <ul className="list-disc list-inside text-gray-800 font-medium space-y-1">
+                            {(ev.schedules && ev.schedules.length > 0 ? ev.schedules : ['Horário a confirmar pelo treinador']).map((sch, idx) => (
+                              <li key={idx}>{sch}</li>
+                            ))}
+                          </ul>
+                        )}
                       </div>
+
+                      {/* TURMAS ABRANGIDAS */}
+                      {classesList.length > 0 && (
+                        <div>
+                          <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
+                            Turmas Abrangidas:
+                          </span>
+                          <div className="flex flex-wrap gap-1">
+                            {classesList.map((tc, idx) => {
+                              const isMyClass = normalizeClassName(tc) === currentAthleteClassNorm;
+                              return (
+                                <span 
+                                  key={idx} 
+                                  className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                                    isMyClass 
+                                      ? 'bg-red-50 text-clubRed border-red-200' 
+                                      : 'bg-gray-50 text-gray-600 border-gray-200'
+                                  }`}
+                                >
+                                  {tc}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      )}
                     </div>
 
                     {/* CONFIRMAÇÃO DE PRESENÇA DO ATLETA PELO PAI */}

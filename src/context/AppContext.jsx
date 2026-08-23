@@ -223,21 +223,26 @@ export function AppProvider({ children }) {
           // 2. Obter Data do Evento
           const eventDate = ev.date || ev.data || ev.event_date || ev.created_at || 'Sem data';
 
-          // 3. Obter Turmas Convocadas
+          // 3. Obter Local e Horários (Mapeamento flexível)
+          const location = ev.location || ev.local || ev.place || '';
+          const eventTime = ev.event_time || ev.time || ev.startTime || ev.start_time || '';
+          const meetingTime = ev.meeting_time || ev.meetingTime || ev.pontoEncontro || '';
+
+          // 4. Obter Turmas Convocadas
           let rawClasses = ev.target_classes || ev.targetClasses || ev.target_class || ev.targetClass;
           let parsedClasses = ensureArray(rawClasses);
           if (parsedClasses.length === 0) {
             parsedClasses = ['Todas as Turmas'];
           }
 
-          // 4. Obter Treinadores Convocados
+          // 5. Obter Treinadores Convocados
           let rawCoaches = ev.coaches || ev.coach_names || ev.coachesList;
           let parsedCoaches = ensureArray(rawCoaches);
 
-          // 5. Obter Horários
-          let rawSchedules = ev.schedules || ev.time || ev.horario || ev.horarios;
+          // 6. Obter Horários Genéricos
+          let rawSchedules = ev.schedules || ev.horario || ev.horarios;
           let parsedSchedules = ensureArray(rawSchedules);
-          if (parsedSchedules.length === 0) {
+          if (parsedSchedules.length === 0 && !eventTime && !meetingTime) {
             parsedSchedules = ['Horário a definir'];
           }
 
@@ -245,6 +250,11 @@ export function AppProvider({ children }) {
             id: ev.id || Math.random().toString(),
             name: String(eventName),
             date: String(eventDate),
+            location: location,
+            time: eventTime,
+            event_time: eventTime,
+            meetingTime: meetingTime,
+            meeting_time: meetingTime,
             created_at: ev.created_at,
             targetClasses: parsedClasses,
             coaches: parsedCoaches,
@@ -502,16 +512,24 @@ export function AppProvider({ children }) {
     });
   };
 
-  // 100% SUPABASE: Criar Evento + Disparo de Notificação Push (WhatsApp Style)
+  // 100% SUPABASE: Criar Evento + Disparo de Notificação Push
   const addEvent = async (eventData) => {
     const targetClassesList = ensureArray(eventData.targetClasses || eventData.target_classes);
     const coachesList = ensureArray(eventData.coaches || eventData.coaches_list);
     const schedulesList = ensureArray(eventData.schedules);
     const fallbackTargetClass = targetClassesList.join(', ') || 'Formação geral';
 
+    const locationValue = eventData.location || '';
+    const timeValue = eventData.time || eventData.event_time || '';
+    const meetingTimeValue = eventData.meetingTime || eventData.meeting_time || '';
+
+    // Enviar estritamente as colunas existentes na base de dados
     const insertPayload = {
       name: eventData.name,
       date: eventData.date,
+      location: locationValue,
+      event_time: timeValue,
+      meeting_time: meetingTimeValue,
       target_class: fallbackTargetClass,
       target_classes: targetClassesList,
       coaches: coachesList,

@@ -43,6 +43,9 @@ export default function Dashboard({ onLogout }) {
 
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
+  const [newEventLocation, setNewEventLocation] = useState('');
+  const [newEventTime, setNewEventTime] = useState('');
+  const [newEventMeetingTime, setNewEventMeetingTime] = useState('');
   const [newEventClasses, setNewEventClasses] = useState(['Flame']);
   const [newEventCoaches, setNewEventCoaches] = useState([]);
 
@@ -244,6 +247,11 @@ export default function Dashboard({ onLogout }) {
     addEvent({
       name: newEventName.trim(),
       date: newEventDate,
+      location: newEventLocation.trim(),
+      time: newEventTime,
+      event_time: newEventTime,
+      meetingTime: newEventMeetingTime,
+      meeting_time: newEventMeetingTime,
       targetClasses: newEventClasses,
       targetClass: newEventClasses.join(', '),
       coaches: newEventCoaches,
@@ -251,6 +259,9 @@ export default function Dashboard({ onLogout }) {
 
     setNewEventName('');
     setNewEventDate('');
+    setNewEventLocation('');
+    setNewEventTime('');
+    setNewEventMeetingTime('');
     setNewEventClasses(['Flame']);
     setNewEventCoaches([]);
   };
@@ -936,7 +947,7 @@ export default function Dashboard({ onLogout }) {
 
                                   <div className="space-y-1">
                                     <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                      👨‍👩‍👧 Encarregado de Educação & Contactos
+                                      👨‍gsub‍👧 Encarregado de Educação & Contactos
                                     </h4>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
                                       <p><strong>Nome do EE:</strong> {reg.parentName || reg.parent_name || 'N/D'}</p>
@@ -1239,6 +1250,37 @@ export default function Dashboard({ onLogout }) {
                   />
                 </div>
 
+                <div className="sm:col-span-2">
+                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Local do Evento</label>
+                  <input
+                    type="text"
+                    placeholder="Ex: Pavilhão Municipal de Sintra"
+                    value={newEventLocation}
+                    onChange={(e) => setNewEventLocation(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-xs"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Hora de Início do Evento</label>
+                  <input
+                    type="time"
+                    value={newEventTime}
+                    onChange={(e) => setNewEventTime(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-xs bg-white"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Hora do Ponto de Encontro</label>
+                  <input
+                    type="time"
+                    value={newEventMeetingTime}
+                    onChange={(e) => setNewEventMeetingTime(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-xs bg-white"
+                  />
+                </div>
+
                 <div className="sm:col-span-2 space-y-2">
                   <label className="block text-[11px] font-medium text-gray-600">Turmas Alvo (Selecione uma ou mais)</label>
                   <div className="flex flex-wrap gap-2">
@@ -1322,6 +1364,10 @@ export default function Dashboard({ onLogout }) {
                       coachesList = ev.coaches.split(',').map((c) => c.trim());
                     }
 
+                    const eventLocation = ev.location || ev.event_location;
+                    const eventTime = ev.time || ev.event_time;
+                    const meetingTime = ev.meetingTime || ev.meeting_time;
+
                     const isEventExpanded = expandedEventId === ev.id;
 
                     const eligibleAthletes = acceptedList.filter((athlete) => {
@@ -1352,12 +1398,28 @@ export default function Dashboard({ onLogout }) {
                       <div key={ev.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
                         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                           <div className="space-y-2">
-                            <div className="flex items-center space-x-2">
+                            <div className="flex items-center space-x-2 flex-wrap gap-y-1">
                               <h3 className="font-bold text-gray-900 text-sm">{ev.name}</h3>
                               <span className="text-[10px] bg-white border border-gray-300 font-semibold px-2 py-0.5 rounded-md text-gray-600">
                                 📅 {ev.date}
                               </span>
+                              {eventTime && (
+                                <span className="text-[10px] bg-blue-50 border border-blue-200 font-semibold px-2 py-0.5 rounded-md text-blue-700">
+                                  ⏰ Início: {eventTime}
+                                </span>
+                              )}
+                              {meetingTime && (
+                                <span className="text-[10px] bg-amber-50 border border-amber-200 font-semibold px-2 py-0.5 rounded-md text-amber-700">
+                                  📍 Encontro: {meetingTime}
+                                </span>
+                              )}
                             </div>
+
+                            {eventLocation && (
+                              <p className="text-[11px] text-gray-600 font-medium">
+                                📍 <span className="font-semibold text-gray-800">{eventLocation}</span>
+                              </p>
+                            )}
 
                             <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                               <span className="text-[11px] font-medium text-gray-500">Turmas:</span>
