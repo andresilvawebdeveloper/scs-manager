@@ -20,6 +20,11 @@ export default function ParentDashboard({ registration, onLogout }) {
   const [formData, setFormData] = useState(registration);
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Estados para Upload e Confirmação da Foto do Atleta
+  const [previewPhotoUrl, setPreviewPhotoUrl] = useState(null);
+  const [selectedPhotoFile, setSelectedPhotoFile] = useState(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
+
   // Estado do Chat
   const [chatText, setChatText] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
@@ -91,6 +96,75 @@ export default function ParentDashboard({ registration, onLogout }) {
     setSuccessMsg('Dados atualizados com sucesso!');
     setIsEditing(false);
   };
+
+  // Selecionar Foto localmente (Pré-visualização)
+  const handleSelectPhoto = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!file.type.startsWith('image/')) {
+      alert('Por favor selecione um ficheiro de imagem válido (JPG, PNG, WEBP).');
+      return;
+    }
+
+    setSelectedPhotoFile(file);
+    setPreviewPhotoUrl(URL.createObjectURL(file));
+  };
+
+  // Confirmar Upload para o Supabase Storage e Atualizar Ficha do Atleta
+  const handleConfirmPhoto = async () => {
+    if (!selectedPhotoFile) return;
+
+    setIsUploadingPhoto(true);
+    try {
+      const fileExt = selectedPhotoFile.name.split('.').pop();
+      const fileName = `${registration.id}_${Date.now()}.${fileExt}`;
+      const filePath = `photos/${fileName}`;
+
+      // 1. Upload para o Bucket "athlete-photos" no Supabase
+      const { error: uploadError } = await supabase.storage
+        .from('athlete-photos')
+        .upload(filePath, selectedPhotoFile, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // 2. Obter o URL público
+      const { data: { publicUrl } } = supabase.storage
+        .from('athlete-photos')
+        .getPublicUrl(filePath);
+
+      // 3. Atualizar diretamente na tabela 'registrations' do Supabase (Apenas a coluna photo_url)
+      const { error: dbError } = await supabase
+        .from('registrations')
+        .update({
+          photo_url: publicUrl
+        })
+        .eq('id', registration.id);
+
+      if (dbError) throw dbError;
+
+      // 4. Atualizar estado local do Contexto e da Ficha
+      const updatedFields = {
+        ...formData,
+        photo_url: publicUrl,
+        photoUrl: publicUrl
+      };
+
+      await updateRegistrationByParent(registration.id, updatedFields);
+      setFormData(updatedFields);
+
+      setSuccessMsg('Fotografia do atleta atualizada com sucesso!');
+      setSelectedPhotoFile(null);
+      setPreviewPhotoUrl(null);
+    } catch (err) {
+      console.error('Erro ao carregar fotografia:', err.message);
+      alert('Erro ao guardar fotografia: ' + err.message);
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
+  const currentPhotoUrl = previewPhotoUrl || formData.photo_url || formData.photoUrl;
 
   const handleEnroll = (classId) => {
     const parentIdentifier = {
@@ -211,8 +285,9 @@ export default function ParentDashboard({ registration, onLogout }) {
       <main className="max-w-2xl mx-auto px-4 mt-6 space-y-6">
         
         {successMsg && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-xs font-medium">
-            {successMsg}
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-xs font-medium flex justify-between items-center">
+            <span>{successMsg}</span>
+            <button onClick={() => setSuccessMsg('')} className="font-bold text-amber-900 ml-2">✕</button>
           </div>
         )}
 
@@ -235,6 +310,64 @@ export default function ParentDashboard({ registration, onLogout }) {
               <p className="text-xs text-gray-500">
                 Código de Acesso: <strong className="text-gray-900 font-mono">{registration.accessCode || registration.access_code}</strong>
               </p>
+            </div>
+
+            {/* MÓDULO: FOTOGRAFIA DO ATLETA */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+              <h2 className="font-bold text-gray-800 text-sm border-b border-gray-100 pb-2">
+                📸 Fotografia Oficial do Atleta
+              </h2>
+
+              <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
+                <div className="relative w-28 h-28 rounded-2xl overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center shrink-0 shadow-inner">
+                  {currentPhotoUrl ? (
+                    <img 
+                      src={currentPhotoUrl} 
+                      alt="Fotografia do Atleta" 
+                      className="w-full h-full object-cover" 
+                    />
+                  ) : (
+                    <div className="text-center p-2 text-gray-400">
+                      <span className="text-2xl block">📷</span>
+                      <span className="text-[10px] block font-medium">Sem Foto</span>
+                    </div>
+                  )}
+                </div>
+
+                <div className="space-y-2 text-xs text-center sm:text-left flex-1">
+                  <p className="text-gray-600">
+                    Carregue uma fotografia visível do rosto do atleta. A foto será visível na ficha e no painel dos treinadores.
+                  </p>
+
+                  <div className="flex flex-wrap gap-2 justify-center sm:justify-start pt-1">
+                    <label className="cursor-pointer bg-gray-900 hover:bg-black text-white px-4 py-2 rounded-xl font-semibold transition text-xs inline-block shadow-sm">
+                      {currentPhotoUrl ? '🔄 Alterar Fotografia' : '📷 Selecionar Fotografia'}
+                      <input 
+                        type="file" 
+                        accept="image/*" 
+                        onChange={handleSelectPhoto} 
+                        className="hidden" 
+                      />
+                    </label>
+
+                    {selectedPhotoFile && (
+                      <button
+                        onClick={handleConfirmPhoto}
+                        disabled={isUploadingPhoto}
+                        className="bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold transition text-xs shadow-sm disabled:opacity-50"
+                      >
+                        {isUploadingPhoto ? 'A guardar...' : '✓ Confirmar e Guardar Foto'}
+                      </button>
+                    )}
+                  </div>
+
+                  {previewPhotoUrl && (
+                    <p className="text-[11px] text-amber-700 bg-amber-50 p-2 rounded-lg border border-amber-200">
+                      ⚠️ Pré-visualização pronta. Clique em <strong>Confirmar e Guardar Foto</strong> para guardar a alteração.
+                    </p>
+                  )}
+                </div>
+              </div>
             </div>
 
             {/* Ficha Completa do Atleta e Encarregado */}

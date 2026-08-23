@@ -758,12 +758,26 @@ export default function Dashboard({ onLogout }) {
                 const cc = reg.athleteCC || reg.athlete_cc;
                 const parent = reg.parentName || reg.parent_name;
                 const parentCc = reg.parentCC || reg.parent_cc;
+                const photoUrl = reg.photoUrl || reg.photo_url;
 
                 return (
                   <div key={reg.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-base">{name}</h3>
-                      <p className="text-xs text-gray-500">Nascimento: {birth} | Sexo: {reg.gender} | CC: {cc}</p>
+                    <div className="flex items-center space-x-4">
+                      {photoUrl ? (
+                        <img 
+                          src={photoUrl} 
+                          alt={name} 
+                          className="w-14 h-14 rounded-full object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
+                        />
+                      ) : (
+                        <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0">
+                          👤
+                        </div>
+                      )}
+                      <div>
+                        <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                        <p className="text-xs text-gray-500">Nascimento: {birth} | Sexo: {reg.gender} | CC: {cc}</p>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
@@ -884,19 +898,34 @@ export default function Dashboard({ onLogout }) {
                           const parentEmail = reg.email || reg.parentEmail || reg.parent_email;
                           const isExpanded = expandedAthletes[reg.id] || false;
                           const name = reg.athleteName || reg.athlete_name || reg.fullName;
+                          const photoUrl = reg.photoUrl || reg.photo_url;
 
                           return (
                             <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                               
                               <div className="flex justify-between items-start">
-                                <div className="space-y-1">
-                                  <h3 className="font-bold text-gray-900 text-base">{name}</h3>
-                                  <p className="text-xs text-gray-500">
-                                    Turma: <span className="font-semibold text-clubRed">{className}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
-                                  </p>
-                                  <p className="text-[11px] text-gray-400 font-mono">
-                                    Código de Acesso: <span className="font-semibold text-gray-700">{reg.access_code || reg.accessCode || 'N/A'}</span>
-                                  </p>
+                                <div className="flex items-center space-x-3">
+                                  {photoUrl ? (
+                                    <img 
+                                      src={photoUrl} 
+                                      alt={name} 
+                                      className="w-12 h-12 rounded-full object-cover border-2 border-clubRed shadow-xs flex-shrink-0"
+                                    />
+                                  ) : (
+                                    <div className="w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-lg flex-shrink-0">
+                                      👤
+                                    </div>
+                                  )}
+
+                                  <div className="space-y-1">
+                                    <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                                    <p className="text-xs text-gray-500">
+                                      Turma: <span className="font-semibold text-clubRed">{className}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
+                                    </p>
+                                    <p className="text-[11px] text-gray-400 font-mono">
+                                      Código de Acesso: <span className="font-semibold text-gray-700">{reg.access_code || reg.accessCode || 'N/A'}</span>
+                                    </p>
+                                  </div>
                                 </div>
 
                                 <div className="flex items-center space-x-2">
@@ -933,6 +962,22 @@ export default function Dashboard({ onLogout }) {
 
                               {isExpanded && (
                                 <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
+                                  {/* Exibição Expandida da Foto */}
+                                  {photoUrl && (
+                                    <div className="flex justify-center sm:justify-start pb-2">
+                                      <div className="relative">
+                                        <img 
+                                          src={photoUrl} 
+                                          alt={name} 
+                                          className="w-24 h-24 rounded-2xl object-cover border-2 border-clubRed shadow-md" 
+                                        />
+                                        <span className="absolute -bottom-1 -right-1 bg-clubRed text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
+                                          Foto Oficial
+                                        </span>
+                                      </div>
+                                    </div>
+                                  )}
+
                                   <div className="space-y-1">
                                     <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
                                       👤 Dados do Atleta
@@ -947,7 +992,7 @@ export default function Dashboard({ onLogout }) {
 
                                   <div className="space-y-1">
                                     <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                      👨‍gsub‍👧 Encarregado de Educação & Contactos
+                                      👨‍👧 Encarregado de Educação & Contactos
                                     </h4>
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
                                       <p><strong>Nome do EE:</strong> {reg.parentName || reg.parent_name || 'N/D'}</p>
@@ -1072,12 +1117,26 @@ export default function Dashboard({ onLogout }) {
                               const birth = athlete.birthDate || athlete.birth_date || 'N/D';
                               const parts = birth.split('-');
                               const formattedDayMonth = parts.length === 3 ? `${parts[2]}/${parts[1]}` : birth;
+                              const photoUrl = athlete.photoUrl || athlete.photo_url;
 
                               return (
                                 <div key={athlete.id} className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center">
-                                  <div className="truncate pr-2">
-                                    <p className="font-bold text-xs text-gray-800 truncate">{name}</p>
-                                    <p className="text-[10px] text-gray-500">Nascimento: {birth}</p>
+                                  <div className="flex items-center space-x-2.5 truncate pr-2">
+                                    {photoUrl ? (
+                                      <img 
+                                        src={photoUrl} 
+                                        alt={name} 
+                                        className="w-8 h-8 rounded-full object-cover border border-clubRed flex-shrink-0" 
+                                      />
+                                    ) : (
+                                      <div className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-[10px] text-gray-400 font-bold flex-shrink-0">
+                                        👤
+                                      </div>
+                                    )}
+                                    <div className="truncate">
+                                      <p className="font-bold text-xs text-gray-800 truncate">{name}</p>
+                                      <p className="text-[10px] text-gray-500">Nascimento: {birth}</p>
+                                    </div>
                                   </div>
                                   <span className="text-xs font-extrabold text-clubRed bg-white px-2 py-1 rounded-md border border-gray-200 whitespace-nowrap shadow-2xs">
                                     🎂 {formattedDayMonth}
@@ -1157,10 +1216,22 @@ export default function Dashboard({ onLogout }) {
 
               return athletesInSelectedClass.map((reg) => {
                 const currentStatus = localAttendances[`${reg.id}_${selectedDate}`];
+                const photoUrl = reg.photoUrl || reg.photo_url;
 
                 return (
                   <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                    <div>
+                    <div className="flex items-center space-x-3">
+                      {photoUrl ? (
+                        <img 
+                          src={photoUrl} 
+                          alt={reg.athleteName || reg.fullName} 
+                          className="w-9 h-9 rounded-full object-cover border border-clubRed flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
+                          👤
+                        </div>
+                      )}
                       <h3 className="font-bold text-gray-900 text-sm">
                         {reg.athleteName || reg.athlete_name || reg.fullName}
                       </h3>
