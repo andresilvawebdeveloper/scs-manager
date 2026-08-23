@@ -174,7 +174,11 @@ export function AppProvider({ children }) {
             parsedClasses = ['Todas as Turmas'];
           }
 
-          // 4. Obter Horários
+          // 4. Obter Treinadores Convocados
+          let rawCoaches = ev.coaches || ev.coach_names || ev.coachesList;
+          let parsedCoaches = ensureArray(rawCoaches);
+
+          // 5. Obter Horários
           let rawSchedules = ev.schedules || ev.time || ev.horario || ev.horarios;
           let parsedSchedules = ensureArray(rawSchedules);
           if (parsedSchedules.length === 0) {
@@ -187,6 +191,7 @@ export function AppProvider({ children }) {
             date: String(eventDate),
             created_at: ev.created_at,
             targetClasses: parsedClasses,
+            coaches: parsedCoaches,
             schedules: parsedSchedules,
             raw: ev
           };
@@ -418,9 +423,10 @@ export function AppProvider({ children }) {
     });
   };
 
-  // 100% SUPABASE: Criar Evento
+  // 100% SUPABASE: Criar Evento sem tentar colunas inexistentes
   const addEvent = async (eventData) => {
     const targetClassesList = ensureArray(eventData.targetClasses || eventData.target_classes);
+    const coachesList = ensureArray(eventData.coaches || eventData.coaches_list);
     const schedulesList = ensureArray(eventData.schedules);
     const fallbackTargetClass = targetClassesList.join(', ') || 'Formação geral';
 
@@ -429,6 +435,7 @@ export function AppProvider({ children }) {
       date: eventData.date,
       target_class: fallbackTargetClass,
       target_classes: targetClassesList,
+      coaches: coachesList,
       schedules: schedulesList
     };
 

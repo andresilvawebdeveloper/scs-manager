@@ -39,10 +39,16 @@ export default function Dashboard({ onLogout }) {
   const [selectedClasses, setSelectedClasses] = useState({});
 
   const [expandedAthletes, setExpandedAthletes] = useState({});
+  const [expandedEventId, setExpandedEventId] = useState(null);
 
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
-  const [newEventClass, setNewEventClass] = useState('Flame');
+  const [newEventClasses, setNewEventClasses] = useState(['Flame']);
+  const [newEventCoaches, setNewEventCoaches] = useState([]);
+
+  const availableCoaches = [
+    'Joana', 'Susana', 'Ricardo', 'Pedro', 'Marta', 'Sofia', 'Inês', 'Maria'
+  ];
 
   const [parentClassDate, setParentClassDate] = useState('');
   const [parentClassTime, setParentClassTime] = useState('18:15 - 19:00');
@@ -92,6 +98,10 @@ export default function Dashboard({ onLogout }) {
       ...prev,
       [id]: !prev[id]
     }));
+  };
+
+  const toggleExpandEvent = (eventId) => {
+    setExpandedEventId((prev) => (prev === eventId ? null : eventId));
   };
 
   // Função para definir o estado de presença exatamente na tecla pretendida
@@ -146,16 +156,42 @@ export default function Dashboard({ onLogout }) {
     }
   };
 
+  const handleToggleEventClass = (className) => {
+    setNewEventClasses((prev) =>
+      prev.includes(className)
+        ? prev.filter((c) => c !== className)
+        : [...prev, className]
+    );
+  };
+
+  const handleToggleEventCoach = (coachName) => {
+    setNewEventCoaches((prev) =>
+      prev.includes(coachName)
+        ? prev.filter((c) => c !== coachName)
+        : [...prev, coachName]
+    );
+  };
+
   const handleCreateEvent = (e) => {
     e.preventDefault();
     if (!newEventName.trim() || !newEventDate) return;
+    if (newEventClasses.length === 0) {
+      alert('Selecione pelo menos uma turma para o evento.');
+      return;
+    }
+    
     addEvent({
       name: newEventName.trim(),
       date: newEventDate,
-      targetClass: newEventClass,
+      targetClasses: newEventClasses,
+      targetClass: newEventClasses.join(', '),
+      coaches: newEventCoaches,
     });
+
     setNewEventName('');
     setNewEventDate('');
+    setNewEventClasses(['Flame']);
+    setNewEventCoaches([]);
   };
 
   const handleCreateParentClass = (e) => {
@@ -489,7 +525,7 @@ export default function Dashboard({ onLogout }) {
             </div>
             <div>
               <p className="text-[10px] sm:text-[11px] text-gray-500 font-medium">Aulas</p>
-              <h3 className="text-xs font-bold text-gray-900">Encarregados</h3>
+              <h3 className="text-xs font-bold text-gray-900">Pais</h3>
             </div>
           </div>
         </div>
@@ -1056,9 +1092,10 @@ export default function Dashboard({ onLogout }) {
         {/* SECÇÃO: EVENTOS */}
         {activeTab === 'events' && (
           <div className="space-y-6">
+            {/* Form de Criação */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <h2 className="font-bold text-gray-800 text-sm">Criar Novo Evento / Competição</h2>
-              <form onSubmit={handleCreateEvent} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <form onSubmit={handleCreateEvent} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="block text-[11px] font-medium text-gray-600 mb-1">Nome do Evento</label>
                   <input
@@ -1080,21 +1117,54 @@ export default function Dashboard({ onLogout }) {
                     required
                   />
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Turma Alvo</label>
-                  <select
-                    value={newEventClass}
-                    onChange={(e) => setNewEventClass(e.target.value)}
-                    className="w-full p-2.5 border rounded-xl text-xs bg-white"
-                  >
-                    <option value="Spark">Spark</option>
-                    <option value="Flame">Flame</option>
-                    <option value="Fusion">Fusion</option>
-                    <option value="Thunder">Thunder</option>
-                    <option value="Firestorm">Firestorm</option>
-                  </select>
+
+                <div className="sm:col-span-2 space-y-2">
+                  <label className="block text-[11px] font-medium text-gray-600">Turmas Alvo (Selecione uma ou mais)</label>
+                  <div className="flex flex-wrap gap-2">
+                    {['Spark', 'Flame', 'Fusion', 'Thunder', 'Firestorm'].map((cls) => {
+                      const isSelected = newEventClasses.includes(cls);
+                      return (
+                        <button
+                          key={cls}
+                          type="button"
+                          onClick={() => handleToggleEventClass(cls)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                            isSelected
+                              ? 'bg-clubRed text-white border-clubRed shadow-sm'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {isSelected ? '✓ ' : ''}{cls}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-                <div className="sm:col-span-3">
+
+                <div className="sm:col-span-2 space-y-2">
+                  <label className="block text-[11px] font-medium text-gray-600">Treinadores Convocados / Presentes</label>
+                  <div className="flex flex-wrap gap-2">
+                    {availableCoaches.map((coach) => {
+                      const isSelected = newEventCoaches.includes(coach);
+                      return (
+                        <button
+                          key={coach}
+                          type="button"
+                          onClick={() => handleToggleEventCoach(coach)}
+                          className={`px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                            isSelected
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                              : 'bg-gray-50 text-gray-700 border-gray-200 hover:bg-gray-100'
+                          }`}
+                        >
+                          {isSelected ? '✓ ' : ''}{coach}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2 pt-2">
                   <button
                     type="submit"
                     className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl text-xs transition shadow"
@@ -1103,6 +1173,220 @@ export default function Dashboard({ onLogout }) {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* Lista de Eventos Criados */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+              <div className="flex justify-between items-center border-b border-gray-100 pb-3">
+                <h2 className="font-bold text-gray-800 text-sm">📅 Eventos Agendados</h2>
+                <span className="text-xs bg-blue-50 text-blue-700 font-bold px-2.5 py-1 rounded-lg">
+                  {events.length} {events.length === 1 ? 'Evento' : 'Eventos'}
+                </span>
+              </div>
+
+              {events.length === 0 ? (
+                <div className="text-center py-6 text-xs text-gray-400">
+                  Ainda não existem eventos ou competições agendadas.
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {events.map((ev) => {
+                    // Tratamento flexível para Turmas
+                    const classesList = ev.targetClasses 
+                      ? (Array.isArray(ev.targetClasses) ? ev.targetClasses : [ev.targetClasses])
+                      : (ev.targetClass ? ev.targetClass.split(', ') : []);
+
+                    // Tratamento flexível para Treinadores (Array ou String com vírgulas)
+                    let coachesList = [];
+                    if (Array.isArray(ev.coaches)) {
+                      coachesList = ev.coaches;
+                    } else if (typeof ev.coaches === 'string' && ev.coaches.trim() !== '') {
+                      coachesList = ev.coaches.split(',').map((c) => c.trim());
+                    }
+
+                    const isEventExpanded = expandedEventId === ev.id;
+
+                    // Filtrar atletas convocados para este evento com base nas turmas alvo
+                    const eligibleAthletes = acceptedList.filter((athlete) => {
+                      const athleteClass = athlete.assignedClass || athlete.assigned_class || 'Flame';
+                      if (classesList.includes('Todas as Turmas')) return true;
+                      return classesList.some((target) => {
+                        if (target === 'Spark') return athleteClass === 'Spark' || athleteClass === 'Formação infantil';
+                        if (target === 'Flame') return athleteClass === 'Flame' || athleteClass === 'Formação geral';
+                        if (target === 'Fusion') return athleteClass === 'Fusion' || athleteClass === 'Formação avançada';
+                        if (target === 'Thunder') return athleteClass === 'Thunder' || athleteClass === 'Pré-Representação';
+                        if (target === 'Firestorm') return athleteClass === 'Firestorm' || athleteClass === 'Representação';
+                        return athleteClass === target;
+                      });
+                    });
+
+                    // Agrupar os atletas convocados por Turma para o evento
+                    const eventAthletesByClass = eligibleAthletes.reduce((acc, athlete) => {
+                      const cls = athlete.assignedClass || athlete.assigned_class || 'Flame';
+                      if (!acc[cls]) acc[cls] = [];
+                      acc[cls].push(athlete);
+                      return acc;
+                    }, {});
+
+                    // Calcular presenças do evento
+                    const confirmedCount = eligibleAthletes.filter(
+                      (a) => eventAttendances[`${ev.id}_${a.id}`]
+                    ).length;
+
+                    return (
+                      <div key={ev.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                          <div className="space-y-2">
+                            <div className="flex items-center space-x-2">
+                              <h3 className="font-bold text-gray-900 text-sm">{ev.name}</h3>
+                              <span className="text-[10px] bg-white border border-gray-300 font-semibold px-2 py-0.5 rounded-md text-gray-600">
+                                📅 {ev.date}
+                              </span>
+                            </div>
+
+                            {/* Turmas Alvo */}
+                            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
+                              <span className="text-[11px] font-medium text-gray-500">Turmas:</span>
+                              {classesList.map((cls, idx) => (
+                                <span key={idx} className="text-[10px] bg-red-100 text-clubRed font-bold px-2 py-0.5 rounded-md">
+                                  {cls}
+                                </span>
+                              ))}
+                            </div>
+
+                            {/* Treinadores Convocados */}
+                            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1 pt-0.5">
+                              <span className="text-[11px] font-medium text-gray-500">Treinadores:</span>
+                              {coachesList.length > 0 ? (
+                                coachesList.map((coach, idx) => (
+                                  <span key={idx} className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md">
+                                    {coach}
+                                  </span>
+                                ))
+                              ) : (
+                                <span className="text-[10px] text-gray-400 italic">Nenhum definido</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2 self-end sm:self-center">
+                            <button
+                              onClick={() => toggleExpandEvent(ev.id)}
+                              className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-bold transition flex items-center space-x-1"
+                            >
+                              <span>📋 Presenças ({confirmedCount}/{eligibleAthletes.length})</span>
+                            </button>
+
+                            {isAdmin && deleteEvent && (
+                              <button
+                                onClick={() => {
+                                  if (window.confirm(`Tem a certeza que pretende eliminar o evento "${ev.name}"?`)) {
+                                    deleteEvent(ev.id);
+                                  }
+                                }}
+                                className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-600 px-3 py-1.5 rounded-lg font-bold transition"
+                              >
+                                Eliminar
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* GESTÃO DE PRESENÇAS DO EVENTO COM CERTINHO VERDE E CRUZ VERMELHA */}
+                        {isEventExpanded && (
+                          <div className="pt-3 border-t border-gray-200 space-y-4 bg-white p-4 rounded-xl border border-gray-100 shadow-2xs">
+                            <div className="flex justify-between items-center border-b pb-2">
+                              <h4 className="font-bold text-xs text-gray-800 uppercase tracking-wider">
+                                🏃 Chamada de Atletas para o Evento
+                              </h4>
+                              <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-md">
+                                {confirmedCount} Presentes de {eligibleAthletes.length} Convocados
+                              </span>
+                            </div>
+
+                            {eligibleAthletes.length === 0 ? (
+                              <p className="text-xs text-gray-400 py-2 text-center">
+                                Não existem atletas ativos nas turmas convocadas para este evento.
+                              </p>
+                            ) : (
+                              <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
+                                {Object.entries(eventAthletesByClass).map(([className, athletesInGroup]) => (
+                                  <div key={className} className="space-y-2">
+                                    {/* Sub-cabeçalho da Turma no Evento */}
+                                    <div className="bg-gray-100 px-3 py-1.5 rounded-lg flex justify-between items-center">
+                                      <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
+                                        <span className="w-2 h-2 rounded-full bg-clubRed"></span>
+                                        <span>Turma {className}</span>
+                                      </span>
+                                      <span className="text-[10px] text-gray-500 font-medium">
+                                        {athletesInGroup.filter(a => eventAttendances[`${ev.id}_${a.id}`]).length} / {athletesInGroup.length}
+                                      </span>
+                                    </div>
+
+                                    {/* Atletas desta Turma */}
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
+                                      {athletesInGroup.map((athlete) => {
+                                        const key = `${ev.id}_${athlete.id}`;
+                                        const isAttending = !!eventAttendances[key];
+                                        const name = athlete.athleteName || athlete.athlete_name || athlete.fullName;
+
+                                        return (
+                                          <div
+                                            key={athlete.id}
+                                            className="flex items-center justify-between p-2.5 rounded-lg border border-gray-100 bg-gray-50 hover:bg-gray-100 transition"
+                                          >
+                                            <div className="truncate pr-2">
+                                              <p className="font-bold text-xs text-gray-800 truncate">{name}</p>
+                                            </div>
+
+                                            <div className="flex items-center space-x-1.5">
+                                              {/* Certinho Verde (Presente) */}
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (!isAttending) toggleEventAttendance(ev.id, athlete.id);
+                                                }}
+                                                title="Marcar como Presente / Vai"
+                                                className={`w-8 h-8 rounded-lg font-extrabold text-sm flex items-center justify-center transition border ${
+                                                  isAttending
+                                                    ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm scale-105'
+                                                    : 'bg-white text-emerald-600 border-gray-200 hover:bg-emerald-50 opacity-60'
+                                                }`}
+                                              >
+                                                ✓
+                                              </button>
+
+                                              {/* Cruz Vermelha (Ausente / Faltou) */}
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  if (isAttending) toggleEventAttendance(ev.id, athlete.id);
+                                                }}
+                                                title="Marcar como Faltou / Não vai"
+                                                className={`w-8 h-8 rounded-lg font-extrabold text-sm flex items-center justify-center transition border ${
+                                                  !isAttending
+                                                    ? 'bg-rose-600 text-white border-rose-600 shadow-sm scale-105'
+                                                    : 'bg-white text-rose-600 border-gray-200 hover:bg-rose-50 opacity-60'
+                                                }`}
+                                              >
+                                                ✕
+                                              </button>
+                                            </div>
+                                          </div>
+                                        );
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
