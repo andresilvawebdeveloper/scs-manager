@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import OneSignal from 'react-onesignal';
 import { supabase } from '../services/supabaseClient';
 
 const AppContext = createContext();
@@ -45,6 +46,44 @@ export function AppProvider({ children }) {
     const saved = localStorage.getItem('scs_messages');
     return saved ? JSON.parse(saved) : [];
   });
+
+  // Inicialização do OneSignal para Notificações Push no Telemóvel
+  useEffect(() => {
+    const initOneSignal = async () => {
+      try {
+        await OneSignal.init({
+          appId: "a9ae2382-1991-495c-9f01-650eb76397d5",
+          allowLocalhostAsSecureOrigin: true,
+          notifyButton: {
+            enable: false,
+          },
+        });
+
+        // Pedir permissão ao utilizador
+        await OneSignal.Notifications.requestPermission();
+
+        // Escutar alterações na subscrição para guardar o Player ID do dispositivo
+        OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
+          const playerId = event.current.id;
+          if (playerId) {
+            console.log("OneSignal Player ID do Dispositivo:", playerId);
+            
+            const { data: { session } } = await supabase.auth.getSession();
+            if (session?.user?.email) {
+              await supabase
+                .from('registrations')
+                .update({ onesignal_player_id: playerId })
+                .eq('email', session.user.email);
+            }
+          }
+        });
+      } catch (err) {
+        console.error("Erro na inicialização do OneSignal:", err);
+      }
+    };
+
+    initOneSignal();
+  }, []);
 
   // Carregar dados iniciais e subscrever a alterações de sessão no Supabase
   useEffect(() => {
