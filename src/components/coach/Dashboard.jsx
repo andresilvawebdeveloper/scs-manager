@@ -767,10 +767,10 @@ export default function Dashboard({ onLogout }) {
                         <img 
                           src={photoUrl} 
                           alt={name} 
-                          className="w-14 h-14 rounded-full object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
+                          className="w-14 h-14 rounded-2xl object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
                         />
                       ) : (
-                        <div className="w-14 h-14 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0">
+                        <div className="w-14 h-14 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0">
                           👤
                         </div>
                       )}
@@ -901,24 +901,30 @@ export default function Dashboard({ onLogout }) {
                           const photoUrl = reg.photoUrl || reg.photo_url;
 
                           return (
-                            <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                            <div key={reg.id} className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                               
-                              <div className="flex justify-between items-start">
-                                <div className="flex items-center space-x-3">
+                              <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                                <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
+                                  {/* ESTILIZAÇÃO ESTRUTURAL DA FOTO NO CARTÃO */}
                                   {photoUrl ? (
-                                    <img 
-                                      src={photoUrl} 
-                                      alt={name} 
-                                      className="w-12 h-12 rounded-full object-cover border-2 border-clubRed shadow-xs flex-shrink-0"
-                                    />
+                                    <div className="relative flex-shrink-0">
+                                      <img 
+                                        src={photoUrl} 
+                                        alt={name} 
+                                        className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-clubRed/20 shadow-md"
+                                      />
+                                      <span className="absolute -bottom-1 -right-1 bg-clubRed text-white text-[8px] font-bold px-1.5 py-0.2 rounded-md shadow-xs">
+                                        OK
+                                      </span>
+                                    </div>
                                   ) : (
-                                    <div className="w-12 h-12 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-lg flex-shrink-0">
+                                    <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0 shadow-inner">
                                       👤
                                     </div>
                                   )}
 
-                                  <div className="space-y-1">
-                                    <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                                  <div className="space-y-0.5 flex-1 min-w-0">
+                                    <h3 className="font-bold text-gray-900 text-base leading-tight truncate">{name}</h3>
                                     <p className="text-xs text-gray-500">
                                       Turma: <span className="font-semibold text-clubRed">{className}</span> | EE: <span className="text-gray-800 font-medium">{reg.parentName || reg.parent_name} ({reg.phone})</span>
                                     </p>
@@ -928,10 +934,10 @@ export default function Dashboard({ onLogout }) {
                                   </div>
                                 </div>
 
-                                <div className="flex items-center space-x-2">
+                                <div className="flex items-center space-x-2 w-full sm:w-auto justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-gray-100">
                                   <button
                                     onClick={() => toggleExpandAthlete(reg.id)}
-                                    className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                                    className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
                                   >
                                     <span>{isExpanded ? '▲ Ocultar Ficha' : '▼ Ver Ficha Completa'}</span>
                                   </button>
@@ -939,7 +945,7 @@ export default function Dashboard({ onLogout }) {
                                   {parentEmail && (
                                     <button
                                       onClick={() => handleOpenPrivateChat(parentEmail)}
-                                      className="px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                                      className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
                                     >
                                       <span>💬 Chat</span>
                                     </button>
@@ -952,7 +958,7 @@ export default function Dashboard({ onLogout }) {
                                           removeAcceptedAthlete(reg.id);
                                         }
                                       }}
-                                      className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
+                                      className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
                                     >
                                       Remover
                                     </button>
@@ -962,17 +968,19 @@ export default function Dashboard({ onLogout }) {
 
                               {isExpanded && (
                                 <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
-                                  {/* Exibição Expandida da Foto */}
+                                  {/* Exibição Expandida da Foto com Estilo "Cartão de Identificação" */}
                                   {photoUrl && (
-                                    <div className="flex justify-center sm:justify-start pb-2">
-                                      <div className="relative">
-                                        <img 
-                                          src={photoUrl} 
-                                          alt={name} 
-                                          className="w-24 h-24 rounded-2xl object-cover border-2 border-clubRed shadow-md" 
-                                        />
-                                        <span className="absolute -bottom-1 -right-1 bg-clubRed text-white text-[9px] font-bold px-1.5 py-0.5 rounded-md">
-                                          Foto Oficial
+                                    <div className="flex flex-col items-center sm:items-start pb-2">
+                                      <div className="bg-white p-2 rounded-2xl border border-gray-200 shadow-md flex flex-col items-center space-y-2">
+                                        <div className="relative">
+                                          <img 
+                                            src={photoUrl} 
+                                            alt={name} 
+                                            className="w-32 h-32 sm:w-36 sm:h-36 rounded-xl object-cover border border-gray-200" 
+                                          />
+                                        </div>
+                                        <span className="bg-clubRed/10 text-clubRed border border-clubRed/20 text-[10px] font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wide">
+                                          📷 Fotografia Oficial do Atleta
                                         </span>
                                       </div>
                                     </div>
@@ -1126,10 +1134,10 @@ export default function Dashboard({ onLogout }) {
                                       <img 
                                         src={photoUrl} 
                                         alt={name} 
-                                        className="w-8 h-8 rounded-full object-cover border border-clubRed flex-shrink-0" 
+                                        className="w-9 h-9 rounded-xl object-cover border border-clubRed/30 flex-shrink-0" 
                                       />
                                     ) : (
-                                      <div className="w-8 h-8 rounded-full bg-white border border-gray-200 flex items-center justify-center text-[10px] text-gray-400 font-bold flex-shrink-0">
+                                      <div className="w-9 h-9 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-[10px] text-gray-400 font-bold flex-shrink-0">
                                         👤
                                       </div>
                                     )}
@@ -1225,10 +1233,10 @@ export default function Dashboard({ onLogout }) {
                         <img 
                           src={photoUrl} 
                           alt={reg.athleteName || reg.fullName} 
-                          className="w-9 h-9 rounded-full object-cover border border-clubRed flex-shrink-0"
+                          className="w-10 h-10 rounded-xl object-cover border border-clubRed/30 flex-shrink-0"
                         />
                       ) : (
-                        <div className="w-9 h-9 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
+                        <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
                           👤
                         </div>
                       )}
