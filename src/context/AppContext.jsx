@@ -83,6 +83,7 @@ export function AppProvider({ children }) {
           const playerId = event.current.id;
           if (playerId) {
             console.log("OneSignal Player ID do Dispositivo:", playerId);
+            localStorage.setItem('scs_onesignal_player_id', playerId);
             
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user?.email) {
@@ -395,8 +396,8 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Login do Encarregado de Educação via Código de Acesso
-  const loginParentByCode = (code) => {
+  // Login do Encarregado de Educação via Código de Acesso com Associação Automática do OneSignal
+  const loginParentByCode = async (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
     }
@@ -421,6 +422,30 @@ export function AppProvider({ children }) {
         success: false, 
         message: 'A sua inscrição ainda está pendente de validação pelo treinador.' 
       };
+    }
+
+    // 🔔 Associar o OneSignal Player ID do dispositivo ao atleta no Supabase
+    try {
+      let playerId = localStorage.getItem('scs_onesignal_player_id');
+      if (!playerId && typeof OneSignal !== 'undefined' && OneSignal.User?.PushSubscription?.id) {
+        playerId = OneSignal.User.PushSubscription.id;
+      }
+
+      if (playerId) {
+        await supabase
+          .from('registrations')
+          .update({ onesignal_player_id: playerId })
+          .eq('id', registration.id);
+
+        console.log(`OneSignal Player ID (${playerId}) associado à inscrição ${registration.id}`);
+        
+        // Atualizar lista local com o novo player_id
+        setRegistrations((prev) =>
+          prev.map((r) => (r.id === registration.id ? { ...r, onesignal_player_id: playerId } : r))
+        );
+      }
+    } catch (err) {
+      console.error("Erro ao guardar OneSignal Player ID no login do pai:", err);
     }
 
     return { success: true, registration };
@@ -601,11 +626,25 @@ export function AppProvider({ children }) {
     );
   };
 
-  // Enviar Mensagem no Chat + Notificação Push (WhatsApp Style)
+  // Enviar Mensagem no Chat + Guardar no Supabase + Notificação Push (WhatsApp Style)
   const sendMessage = async (msgObj) => {
     setMessages((prev) => [...prev, msgObj]);
 
-    // 🔔 DISPARAR NOTIFICAÇÃO PUSH AUTOMÁTICA
+    // 1. Gravar mensagem na tabela 'messages' do Supabase
+    try {
+      await supabase.from('messages').insert([{
+        sender: msgObj.sender,
+        sender_name: msgObj.senderName || msgObj.sender,
+        recipient_email: msgObj.recipientEmail || 'all',
+        text: msgObj.text || msgObj.message || '',
+        timestamp: msgObj.timestamp || new Date().toISOString(),
+        date: msgObj.date || new Date().toLocaleDateString('pt-PT')
+      }]);
+    } catch (err) {
+      console.error('Erro ao guardar mensagem na base de dados:', err);
+    }
+
+    // 2. DISPARAR NOTIFICAÇÃO PUSH AUTOMÁTICA
     const isFromCoach = msgObj.sender === 'Coach';
     let targetPlayerIds = [];
 
