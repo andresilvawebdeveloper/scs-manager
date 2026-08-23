@@ -396,8 +396,8 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Login do Encarregado de Educação via Código de Acesso com Associação Automática do OneSignal
-  const loginParentByCode = async (code) => {
+  // Login do Encarregado de Educação via Código de Acesso
+  const loginParentByCode = (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
     }
@@ -424,7 +424,7 @@ export function AppProvider({ children }) {
       };
     }
 
-    // 🔔 Associar o OneSignal Player ID do dispositivo ao atleta no Supabase
+    // 🔔 Associar o OneSignal Player ID do dispositivo ao atleta no Supabase em segundo plano
     try {
       let playerId = localStorage.getItem('scs_onesignal_player_id');
       if (!playerId && typeof OneSignal !== 'undefined' && OneSignal.User?.PushSubscription?.id) {
@@ -432,17 +432,16 @@ export function AppProvider({ children }) {
       }
 
       if (playerId) {
-        await supabase
+        supabase
           .from('registrations')
           .update({ onesignal_player_id: playerId })
-          .eq('id', registration.id);
-
-        console.log(`OneSignal Player ID (${playerId}) associado à inscrição ${registration.id}`);
-        
-        // Atualizar lista local com o novo player_id
-        setRegistrations((prev) =>
-          prev.map((r) => (r.id === registration.id ? { ...r, onesignal_player_id: playerId } : r))
-        );
+          .eq('id', registration.id)
+          .then(() => {
+            console.log(`OneSignal Player ID (${playerId}) associado à inscrição ${registration.id}`);
+            setRegistrations((prev) =>
+              prev.map((r) => (r.id === registration.id ? { ...r, onesignal_player_id: playerId } : r))
+            );
+          });
       }
     } catch (err) {
       console.error("Erro ao guardar OneSignal Player ID no login do pai:", err);

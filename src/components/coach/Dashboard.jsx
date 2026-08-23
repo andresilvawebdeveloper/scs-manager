@@ -73,81 +73,62 @@ export default function Dashboard({ onLogout }) {
     }
   }, [currentCoach]);
 
-  // Lógica de verificação de novas respostas a eventos
+  // Lógica de verificação de novas respostas a eventos (AJUSTADA PARA APARECER Apenas 1 VEZ)
   useEffect(() => {
-    const checkNewResponses = async () => {
-      if (!currentCoach?.id) return;
+    if (!events || events.length === 0 || !eventAttendances) return;
 
-      try {
-        // Obter do utilizador/treinador o timestamp do último login
-        const lastLoginTime = currentCoach?.last_login_at || currentCoach?.user_metadata?.last_login_at || null;
-        
-        const nowIso = new Date().toISOString();
+    // Obter IDs de eventos já visualizados a partir do localStorage
+    const seenEventIds = JSON.parse(localStorage.getItem('scs_seen_event_responses') || '[]');
+    const unseenSummaries = {};
 
-        // Atualizar o timestamp de login no perfil/metadata do treinador no Supabase
-        await supabase.auth.updateUser({
-          data: { last_login_at: nowIso }
-        });
+    Object.entries(eventAttendances).forEach(([key, attendanceData]) => {
+      const [eventId, athleteId] = key.split('_');
+      
+      // Se este evento já foi visualizado pelo treinador, ignora
+      if (seenEventIds.includes(String(eventId))) return;
 
-        if (!eventAttendances || !events || events.length === 0) return;
+      const event = events.find((e) => String(e.id) === String(eventId));
+      const athlete = registrations.find((r) => String(r.id) === String(athleteId));
 
-        // Se houver um timestamp prévio, filtra as respostas submetidas após esse horário
-        // Caso contrário, calcula as respostas mais recentes
-        const recentResponses = [];
+      if (event && athlete) {
+        const isAttending = typeof attendanceData === 'object' ? attendanceData.status : attendanceData;
+        const athleteClass = athlete.assignedClass || athlete.assigned_class || 'Flame';
 
-        Object.entries(eventAttendances).forEach(([key, attendanceData]) => {
-          // Tratar quando eventAttendances tem timestamps de atualização
-          const responseTimestamp = typeof attendanceData === 'object' ? attendanceData.updated_at : null;
-          const isAttending = typeof attendanceData === 'object' ? attendanceData.status : attendanceData;
-
-          const [eventId, athleteId] = key.split('_');
-          const event = events.find((e) => e.id === eventId);
-          const athlete = registrations.find((r) => r.id === athleteId);
-
-          if (event && athlete) {
-            const isAfterLastLogin = !lastLoginTime || (responseTimestamp && new Date(responseTimestamp) > new Date(lastLoginTime));
-
-            if (isAfterLastLogin) {
-              recentResponses.push({
-                eventId: event.id,
-                eventName: event.name,
-                eventDate: event.date,
-                athleteId: athlete.id,
-                athleteName: athlete.athleteName || athlete.athlete_name || athlete.fullName,
-                athleteClass: athlete.assignedClass || athlete.assigned_class || 'Flame',
-                parentName: athlete.parentName || athlete.parent_name || 'Encarregado',
-                isAttending: !!isAttending
-              });
-            }
-          }
-        });
-
-        if (recentResponses.length > 0) {
-          // Agrupar por Evento -> Turma
-          const grouped = recentResponses.reduce((acc, resp) => {
-            if (!acc[resp.eventName]) {
-              acc[resp.eventName] = {
-                date: resp.eventDate,
-                classes: {}
-              };
-            }
-            if (!acc[resp.eventName].classes[resp.athleteClass]) {
-              acc[resp.eventName].classes[resp.athleteClass] = [];
-            }
-            acc[resp.eventName].classes[resp.athleteClass].push(resp);
-            return acc;
-          }, {});
-
-          setNewResponsesSummary(grouped);
-          setShowEventResponsesModal(true);
+        if (!unseenSummaries[event.name]) {
+          unseenSummaries[event.name] = {
+            id: event.id,
+            date: event.date,
+            classes: {}
+          };
         }
-      } catch (err) {
-        console.error('Erro ao verificar respostas recentes:', err);
-      }
-    };
 
-    checkNewResponses();
-  }, [currentCoach, events, eventAttendances, registrations]);
+        if (!unseenSummaries[event.name].classes[athleteClass]) {
+          unseenSummaries[event.name].classes[athleteClass] = [];
+        }
+
+        unseenSummaries[event.name].classes[athleteClass].push({
+          athleteName: athlete.athleteName || athlete.athlete_name || athlete.fullName,
+          parentName: athlete.parentName || athlete.parent_name || 'Encarregado',
+          isAttending: !!isAttending
+        });
+      }
+    });
+
+    if (Object.keys(unseenSummaries).length > 0) {
+      setNewResponsesSummary(unseenSummaries);
+      setShowEventResponsesModal(true);
+    }
+  }, [events, eventAttendances, registrations]);
+
+  // Função para fechar o modal e registar que já foi visto
+  const handleCloseResponsesModal = () => {
+    const seenEventIds = JSON.parse(localStorage.getItem('scs_seen_event_responses') || '[]');
+    const newSeenIds = Object.values(newResponsesSummary).map((ev) => String(ev.id));
+    const updatedSeen = Array.from(new Set([...seenEventIds, ...newSeenIds]));
+
+    localStorage.setItem('scs_seen_event_responses', JSON.stringify(updatedSeen));
+    setShowEventResponsesModal(false);
+  };
 
   // Estado para o Switch no separador de Atletas Ativos ('athletes' | 'birthdays')
   const [acceptedSubView, setAcceptedSubView] = useState('athletes');
@@ -382,7 +363,6 @@ export default function Dashboard({ onLogout }) {
         throw error;
       }
 
-      // Se o email foi alterado, atualiza também a tabela 'coaches' se existir
       if (updates.email && currentCoach?.id) {
         await supabase
           .from('coaches')
@@ -409,7 +389,7 @@ export default function Dashboard({ onLogout }) {
 
   const allMessagesList = messages || [];
   const currentChatMessages = allMessagesList.filter(
-    (m) => chatTarget === 'all' ? m.recipientEmail === 'all' : (m.recipientEmail === chatTarget || m.senderEmail === chatTarget)
+    (m) => chatTarget === 'all' ? m.recipientEmail === 'all' : (m.recipientEmail === chatTarget || m.senderEmail === chatTarget || m.recipient_email === chatTarget)
   );
 
   // Agrupar atletas ativos por Turma
@@ -552,7 +532,7 @@ export default function Dashboard({ onLogout }) {
                 </div>
               </div>
               <button
-                onClick={() => setShowEventResponsesModal(false)}
+                onClick={handleCloseResponsesModal}
                 className="text-gray-400 hover:text-gray-600 font-bold text-sm p-1 rounded-lg hover:bg-gray-100"
               >
                 ✕
@@ -596,7 +576,7 @@ export default function Dashboard({ onLogout }) {
 
             <div className="pt-2">
               <button
-                onClick={() => setShowEventResponsesModal(false)}
+                onClick={handleCloseResponsesModal}
                 className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-bold text-xs rounded-xl transition shadow"
               >
                 Compreendido
@@ -1064,7 +1044,6 @@ export default function Dashboard({ onLogout }) {
                       const list = birthdaysByMonth[mIdx] || [];
                       if (list.length === 0) return null;
 
-                      // Ordenar por dia do mês
                       const sortedList = [...list].sort((a, b) => {
                         const dayA = parseInt((a.birthDate || a.birth_date || '').split('-')[2] || 0, 10);
                         const dayB = parseInt((b.birthDate || b.birth_date || '').split('-')[2] || 0, 10);
@@ -1177,7 +1156,6 @@ export default function Dashboard({ onLogout }) {
                     </div>
 
                     <div className="flex items-center space-x-1.5 w-full sm:w-auto justify-end flex-wrap gap-y-1">
-                      {/* Botão Presente (P) */}
                       <button
                         type="button"
                         onClick={() => handleSetAthleteStatus(reg.id, 'presente')}
@@ -1190,7 +1168,6 @@ export default function Dashboard({ onLogout }) {
                         ✓ Presente (P)
                       </button>
 
-                      {/* Botão Falta Justificada (FJ) */}
                       <button
                         type="button"
                         onClick={() => handleSetAthleteStatus(reg.id, 'justificado')}
@@ -1203,7 +1180,6 @@ export default function Dashboard({ onLogout }) {
                         FJ Justificada
                       </button>
 
-                      {/* Botão Falta Não Justificada (FNJ) */}
                       <button
                         type="button"
                         onClick={() => handleSetAthleteStatus(reg.id, 'injustificado')}
@@ -1216,7 +1192,6 @@ export default function Dashboard({ onLogout }) {
                         ✕ FNJ Não Justificada
                       </button>
 
-                      {/* Botão Lesão (L) */}
                       <button
                         type="button"
                         onClick={() => handleSetAthleteStatus(reg.id, 'lesao')}
@@ -1239,7 +1214,6 @@ export default function Dashboard({ onLogout }) {
         {/* SECÇÃO: EVENTOS */}
         {activeTab === 'events' && (
           <div className="space-y-6">
-            {/* Form de Criação */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <h2 className="font-bold text-gray-800 text-sm">Criar Novo Evento / Competição</h2>
               <form onSubmit={handleCreateEvent} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1322,7 +1296,6 @@ export default function Dashboard({ onLogout }) {
               </form>
             </div>
 
-            {/* Lista de Eventos Criados */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <div className="flex justify-between items-center border-b border-gray-100 pb-3">
                 <h2 className="font-bold text-gray-800 text-sm">📅 Eventos Agendados</h2>
@@ -1338,12 +1311,10 @@ export default function Dashboard({ onLogout }) {
               ) : (
                 <div className="space-y-4">
                   {events.map((ev) => {
-                    // Tratamento flexível para Turmas
                     const classesList = ev.targetClasses 
                       ? (Array.isArray(ev.targetClasses) ? ev.targetClasses : [ev.targetClasses])
                       : (ev.targetClass ? ev.targetClass.split(', ') : []);
 
-                    // Tratamento flexível para Treinadores (Array ou String com vírgulas)
                     let coachesList = [];
                     if (Array.isArray(ev.coaches)) {
                       coachesList = ev.coaches;
@@ -1353,7 +1324,6 @@ export default function Dashboard({ onLogout }) {
 
                     const isEventExpanded = expandedEventId === ev.id;
 
-                    // Filtrar atletas convocados para este evento com base nas turmas alvo
                     const eligibleAthletes = acceptedList.filter((athlete) => {
                       const athleteClass = athlete.assignedClass || athlete.assigned_class || 'Flame';
                       if (classesList.includes('Todas as Turmas')) return true;
@@ -1367,7 +1337,6 @@ export default function Dashboard({ onLogout }) {
                       });
                     });
 
-                    // Agrupar os atletas convocados por Turma para o evento
                     const eventAthletesByClass = eligibleAthletes.reduce((acc, athlete) => {
                       const cls = athlete.assignedClass || athlete.assigned_class || 'Flame';
                       if (!acc[cls]) acc[cls] = [];
@@ -1375,7 +1344,6 @@ export default function Dashboard({ onLogout }) {
                       return acc;
                     }, {});
 
-                    // Calcular presenças do evento
                     const confirmedCount = eligibleAthletes.filter(
                       (a) => eventAttendances[`${ev.id}_${a.id}`]
                     ).length;
@@ -1391,7 +1359,6 @@ export default function Dashboard({ onLogout }) {
                               </span>
                             </div>
 
-                            {/* Turmas Alvo */}
                             <div className="flex items-center space-x-1.5 flex-wrap gap-y-1">
                               <span className="text-[11px] font-medium text-gray-500">Turmas:</span>
                               {classesList.map((cls, idx) => (
@@ -1401,7 +1368,6 @@ export default function Dashboard({ onLogout }) {
                               ))}
                             </div>
 
-                            {/* Treinadores Convocados */}
                             <div className="flex items-center space-x-1.5 flex-wrap gap-y-1 pt-0.5">
                               <span className="text-[11px] font-medium text-gray-500">Treinadores:</span>
                               {coachesList.length > 0 ? (
@@ -1439,7 +1405,6 @@ export default function Dashboard({ onLogout }) {
                           </div>
                         </div>
 
-                        {/* GESTÃO DE PRESENÇAS DO EVENTO COM CERTINHO VERDE E CRUZ VERMELHA */}
                         {isEventExpanded && (
                           <div className="pt-3 border-t border-gray-200 space-y-4 bg-white p-4 rounded-xl border border-gray-100 shadow-2xs">
                             <div className="flex justify-between items-center border-b pb-2">
@@ -1459,7 +1424,6 @@ export default function Dashboard({ onLogout }) {
                               <div className="space-y-4 max-h-96 overflow-y-auto pr-1">
                                 {Object.entries(eventAthletesByClass).map(([className, athletesInGroup]) => (
                                   <div key={className} className="space-y-2">
-                                    {/* Sub-cabeçalho da Turma no Evento */}
                                     <div className="bg-gray-100 px-3 py-1.5 rounded-lg flex justify-between items-center">
                                       <span className="text-xs font-bold text-gray-800 flex items-center space-x-1.5">
                                         <span className="w-2 h-2 rounded-full bg-clubRed"></span>
@@ -1470,7 +1434,6 @@ export default function Dashboard({ onLogout }) {
                                       </span>
                                     </div>
 
-                                    {/* Atletas desta Turma */}
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
                                       {athletesInGroup.map((athlete) => {
                                         const key = `${ev.id}_${athlete.id}`;
@@ -1487,7 +1450,6 @@ export default function Dashboard({ onLogout }) {
                                             </div>
 
                                             <div className="flex items-center space-x-1.5">
-                                              {/* Certinho Verde (Presente) */}
                                               <button
                                                 type="button"
                                                 onClick={() => {
@@ -1503,7 +1465,6 @@ export default function Dashboard({ onLogout }) {
                                                 ✓
                                               </button>
 
-                                              {/* Cruz Vermelha (Ausente / Faltou) */}
                                               <button
                                                 type="button"
                                                 onClick={() => {
@@ -1634,7 +1595,7 @@ export default function Dashboard({ onLogout }) {
                         }`}
                       >
                         <span className="text-[10px] font-bold block opacity-80">
-                          {isCoach ? 'Treinador' : msg.senderName || 'Encarregado'}
+                          {isCoach ? 'Treinador' : msg.senderName || msg.sender_name || 'Encarregado'}
                         </span>
                         <p className="leading-relaxed whitespace-pre-line">{msg.text || msg.message}</p>
                         <span className="text-[9px] block text-right opacity-70">
