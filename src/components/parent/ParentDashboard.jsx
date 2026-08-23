@@ -9,6 +9,8 @@ export default function ParentDashboard({ registration, onLogout }) {
     enrollInAdultClass, 
     cancelAdultClassEnrollment,
     events,
+    eventAttendances,
+    toggleEventAttendance,
     messages,
     sendMessage
   } = useApp();
@@ -383,54 +385,105 @@ export default function ParentDashboard({ registration, onLogout }) {
                 <p className="text-xs text-gray-400">Não existem convocações ativas para a turma {athleteClass} de momento.</p>
               </div>
             ) : (
-              myClassEvents.map((ev) => (
-                <div key={ev.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-3">
-                  <div className="flex justify-between items-start border-b border-gray-100 pb-3">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-base">{ev.name}</h3>
-                      <p className="text-xs text-gray-500 mt-0.5">
-                        📅 Data: <strong className="text-gray-800">{ev.date}</strong>
-                      </p>
-                    </div>
-                    <span className="bg-emerald-50 text-emerald-700 font-bold text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider border border-emerald-100">
-                      Convocado
-                    </span>
-                  </div>
+              myClassEvents.map((ev) => {
+                const isAttending = !!(eventAttendances && eventAttendances[`${ev.id}_${registration.id}`]);
 
-                  <div className="space-y-2 pt-1 text-xs">
-                    <div>
-                      <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
-                        Turmas Abrangidas:
+                return (
+                  <div key={ev.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                    <div className="flex justify-between items-start border-b border-gray-100 pb-3">
+                      <div>
+                        <h3 className="font-bold text-gray-900 text-base">{ev.name}</h3>
+                        <p className="text-xs text-gray-500 mt-0.5">
+                          📅 Data: <strong className="text-gray-800">{ev.date}</strong>
+                        </p>
+                      </div>
+                      <span className="bg-emerald-50 text-emerald-700 font-bold text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider border border-emerald-100">
+                        Convocado
                       </span>
-                      <div className="flex flex-wrap gap-1">
-                        {(ev.targetClasses || [ev.targetClass]).map((tc, idx) => (
-                          <span 
-                            key={idx} 
-                            className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
-                              tc === athleteClass 
-                                ? 'bg-red-50 text-clubRed border-red-200' 
-                                : 'bg-gray-50 text-gray-600 border-gray-200'
-                            }`}
-                          >
-                            {tc}
-                          </span>
-                        ))}
+                    </div>
+
+                    <div className="space-y-2 pt-1 text-xs">
+                      <div>
+                        <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
+                          Turmas Abrangidas:
+                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {(ev.targetClasses || [ev.targetClass]).map((tc, idx) => (
+                            <span 
+                              key={idx} 
+                              className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                                tc === athleteClass 
+                                  ? 'bg-red-50 text-clubRed border-red-200' 
+                                  : 'bg-gray-50 text-gray-600 border-gray-200'
+                              }`}
+                            >
+                              {tc}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mt-2">
+                        <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
+                          Horários Programados:
+                        </span>
+                        <ul className="list-disc list-inside text-gray-800 font-medium space-y-1">
+                          {(ev.schedules || ['Horário a confirmar pelo treinador']).map((sch, idx) => (
+                            <li key={idx}>{sch}</li>
+                          ))}
+                        </ul>
                       </div>
                     </div>
 
-                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-100 mt-2">
-                      <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
-                        Horários Programados:
-                      </span>
-                      <ul className="list-disc list-inside text-gray-800 font-medium space-y-1">
-                        {(ev.schedules || ['Horário a confirmar pelo treinador']).map((sch, idx) => (
-                          <li key={idx}>{sch}</li>
-                        ))}
-                      </ul>
+                    {/* CONFIRMAÇÃO DE PRESENÇA DO ATLETA PELO PAI */}
+                    <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-red-50/40 p-3.5 rounded-xl border border-red-100">
+                      <div>
+                        <span className="text-xs font-bold text-gray-900 block">
+                          O atleta vai estar presente?
+                        </span>
+                        <span className="text-[10px] text-gray-500 block">
+                          Confirme a presença para o treinador organizar a equipa.
+                        </span>
+                      </div>
+
+                      <div className="flex items-center space-x-2 w-full sm:w-auto">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isAttending && toggleEventAttendance) {
+                              toggleEventAttendance(ev.id, registration.id);
+                            }
+                          }}
+                          className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
+                            isAttending
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                              : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+                          }`}
+                        >
+                          <span>✓ Vou / Estará Presente</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isAttending && toggleEventAttendance) {
+                              toggleEventAttendance(ev.id, registration.id);
+                            }
+                          }}
+                          className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
+                            !isAttending
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                              : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-50'
+                          }`}
+                        >
+                          <span>✕ Não Vou / Ausente</span>
+                        </button>
+                      </div>
                     </div>
+
                   </div>
-                </div>
-              ))
+                );
+              })
             )}
           </div>
         )}
