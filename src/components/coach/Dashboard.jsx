@@ -63,11 +63,91 @@ export default function Dashboard({ onLogout }) {
   const [profilePassword, setProfilePassword] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
+  // Estado do Modal/Popup de Novas Respostas a Eventos
+  const [showEventResponsesModal, setShowEventResponsesModal] = useState(false);
+  const [newResponsesSummary, setNewResponsesSummary] = useState([]);
+
   useEffect(() => {
     if (currentCoach?.email) {
       setProfileEmail(currentCoach.email);
     }
   }, [currentCoach]);
+
+  // Lógica de verificação de novas respostas a eventos
+  useEffect(() => {
+    const checkNewResponses = async () => {
+      if (!currentCoach?.id) return;
+
+      try {
+        // Obter do utilizador/treinador o timestamp do último login
+        const lastLoginTime = currentCoach?.last_login_at || currentCoach?.user_metadata?.last_login_at || null;
+        
+        const nowIso = new Date().toISOString();
+
+        // Atualizar o timestamp de login no perfil/metadata do treinador no Supabase
+        await supabase.auth.updateUser({
+          data: { last_login_at: nowIso }
+        });
+
+        if (!eventAttendances || !events || events.length === 0) return;
+
+        // Se houver um timestamp prévio, filtra as respostas submetidas após esse horário
+        // Caso contrário, calcula as respostas mais recentes
+        const recentResponses = [];
+
+        Object.entries(eventAttendances).forEach(([key, attendanceData]) => {
+          // Tratar quando eventAttendances tem timestamps de atualização
+          const responseTimestamp = typeof attendanceData === 'object' ? attendanceData.updated_at : null;
+          const isAttending = typeof attendanceData === 'object' ? attendanceData.status : attendanceData;
+
+          const [eventId, athleteId] = key.split('_');
+          const event = events.find((e) => e.id === eventId);
+          const athlete = registrations.find((r) => r.id === athleteId);
+
+          if (event && athlete) {
+            const isAfterLastLogin = !lastLoginTime || (responseTimestamp && new Date(responseTimestamp) > new Date(lastLoginTime));
+
+            if (isAfterLastLogin) {
+              recentResponses.push({
+                eventId: event.id,
+                eventName: event.name,
+                eventDate: event.date,
+                athleteId: athlete.id,
+                athleteName: athlete.athleteName || athlete.athlete_name || athlete.fullName,
+                athleteClass: athlete.assignedClass || athlete.assigned_class || 'Flame',
+                parentName: athlete.parentName || athlete.parent_name || 'Encarregado',
+                isAttending: !!isAttending
+              });
+            }
+          }
+        });
+
+        if (recentResponses.length > 0) {
+          // Agrupar por Evento -> Turma
+          const grouped = recentResponses.reduce((acc, resp) => {
+            if (!acc[resp.eventName]) {
+              acc[resp.eventName] = {
+                date: resp.eventDate,
+                classes: {}
+              };
+            }
+            if (!acc[resp.eventName].classes[resp.athleteClass]) {
+              acc[resp.eventName].classes[resp.athleteClass] = [];
+            }
+            acc[resp.eventName].classes[resp.athleteClass].push(resp);
+            return acc;
+          }, {});
+
+          setNewResponsesSummary(grouped);
+          setShowEventResponsesModal(true);
+        }
+      } catch (err) {
+        console.error('Erro ao verificar respostas recentes:', err);
+      }
+    };
+
+    checkNewResponses();
+  }, [currentCoach, events, eventAttendances, registrations]);
 
   // Estado para o Switch no separador de Atletas Ativos ('athletes' | 'birthdays')
   const [acceptedSubView, setAcceptedSubView] = useState('athletes');
@@ -123,7 +203,7 @@ export default function Dashboard({ onLogout }) {
   };
 
   const handleAcceptWithClass = async (regId) => {
-    const assignedClass = selectedClasses[regId] || 'Flame';
+    const assignedClass = selectedClasses[regId] || 'Spark';
     const athlete = pendingList.find((r) => r.id === regId);
     if (!athlete) return;
 
@@ -459,6 +539,73 @@ export default function Dashboard({ onLogout }) {
   return (
     <div className="min-h-screen bg-gray-100 pb-12">
       
+      {/* POPUP / MODAL DE NOVAS RESPOSTAS A EVENTOS */}
+      {showEventResponsesModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-5 animate-in fade-in zoom-in duration-200">
+            <div className="flex justify-between items-start border-b border-gray-100 pb-3">
+              <div className="flex items-center space-x-2">
+                <span className="text-xl">🔔</span>
+                <div>
+                  <h3 className="font-bold text-gray-900 text-base">Novas Respostas a Eventos</h3>
+                  <p className="text-xs text-gray-500">Respostas submetidas pelos encarregados de educação</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowEventResponsesModal(false)}
+                className="text-gray-400 hover:text-gray-600 font-bold text-sm p-1 rounded-lg hover:bg-gray-100"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="max-h-80 overflow-y-auto space-y-4 pr-1">
+              {Object.entries(newResponsesSummary).map(([eventName, eventInfo]) => (
+                <div key={eventName} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-3">
+                  <div className="flex justify-between items-center border-b border-gray-200 pb-2">
+                    <h4 className="font-bold text-xs text-gray-900 uppercase tracking-wider">{eventName}</h4>
+                    <span className="text-[10px] font-semibold text-gray-500 bg-white px-2 py-0.5 rounded border">
+                      📅 {eventInfo.date}
+                    </span>
+                  </div>
+
+                  {Object.entries(eventInfo.classes).map(([className, responses]) => (
+                    <div key={className} className="space-y-1.5 pl-1">
+                      <span className="text-[11px] font-bold text-clubRed block">
+                        Turma: {className}
+                      </span>
+                      <ul className="space-y-1">
+                        {responses.map((resp, idx) => (
+                          <li key={idx} className="text-xs flex justify-between items-center bg-white p-2 rounded-lg border border-gray-100">
+                            <span className="font-medium text-gray-800">
+                              {resp.athleteName} <span className="text-gray-400 font-normal">({resp.parentName})</span>
+                            </span>
+                            <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                              resp.isAttending ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                            }`}>
+                              {resp.isAttending ? '✓ Presente' : '✕ Ausente'}
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </div>
+              ))}
+            </div>
+
+            <div className="pt-2">
+              <button
+                onClick={() => setShowEventResponsesModal(false)}
+                className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-bold text-xs rounded-xl transition shadow"
+              >
+                Compreendido
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <header className="bg-gradient-to-r from-clubRed to-red-700 text-white shadow-lg">
         <div className="max-w-4xl mx-auto px-4 py-5 flex justify-between items-center">
