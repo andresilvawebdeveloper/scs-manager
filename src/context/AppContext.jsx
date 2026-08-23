@@ -22,6 +22,20 @@ const ensureArray = (val) => {
   return [];
 };
 
+// Função auxiliar para invocar a Edge Function de envio de Push Notifications
+const triggerPushNotification = async ({ playerIds, title, message, url }) => {
+  try {
+    const { error } = await supabase.functions.invoke('send-push-notification', {
+      body: { playerIds, title, message, url }
+    });
+    if (error) {
+      console.error('Erro ao invocar Edge Function de Notificação Push:', error.message);
+    }
+  } catch (err) {
+    console.error('Falha de ligação ao enviar notificação Push:', err);
+  }
+};
+
 export function AppProvider({ children }) {
   const [registrations, setRegistrations] = useState([]);
   const [events, setEvents] = useState([]);
@@ -51,8 +65,10 @@ export function AppProvider({ children }) {
   useEffect(() => {
     const initOneSignal = async () => {
       try {
+        const appId = import.meta.env.VITE_ONESIGNAL_APP_ID || "a9ae2382-1991-495c-9f01-650eb76397d5";
+
         await OneSignal.init({
-          appId: "a9ae2382-1991-495c-9f01-650eb76397d5",
+          appId: appId,
           allowLocalhostAsSecureOrigin: true,
           notifyButton: {
             enable: false,
@@ -462,7 +478,7 @@ export function AppProvider({ children }) {
     });
   };
 
-  // 100% SUPABASE: Criar Evento sem tentar colunas inexistentes
+  // 100% SUPABASE: Criar Evento + Disparo de Notificação Push (WhatsApp Style)
   const addEvent = async (eventData) => {
     const targetClassesList = ensureArray(eventData.targetClasses || eventData.target_classes);
     const coachesList = ensureArray(eventData.coaches || eventData.coaches_list);
@@ -492,6 +508,24 @@ export function AppProvider({ children }) {
         alert('Erro ao gravar evento no Supabase: ' + error.message);
       } else {
         await fetchEvents();
+
+        // 🔔 NOTIFICAÇÃO PUSH AUTO: Obter Player IDs dos pais das turmas alvo
+        const eligibleParents = registrations.filter((r) => {
+          if (r.status !== 'accepted') return false;
+          const assigned = r.assigned_class || r.assignedClass || 'Flame';
+          if (targetClassesList.includes('Todas as Turmas')) return true;
+          return targetClassesList.includes(assigned);
+        });
+
+        const targetPlayerIds = eligibleParents
+          .map((p) => p.onesignal_player_id)
+          .filter(Boolean);
+
+        triggerPushNotification({
+          playerIds: targetPlayerIds.length > 0 ? targetPlayerIds : undefined,
+          title: `🏆 Novo Evento: ${eventData.name}`,
+          message: `Foi agendado um novo evento para o dia ${eventData.date}. Confirme já a presença do seu educando!`
+        });
       }
     } catch (err) {
       console.error('Falha na ligação:', err.message);
@@ -567,9 +601,42 @@ export function AppProvider({ children }) {
     );
   };
 
-  // Enviar Mensagem no Chat
-  const sendMessage = (msgObj) => {
+  // Enviar Mensagem no Chat + Notificação Push (WhatsApp Style)
+  const sendMessage = async (msgObj) => {
     setMessages((prev) => [...prev, msgObj]);
+
+    // 🔔 DISPARAR NOTIFICAÇÃO PUSH AUTOMÁTICA
+    const isFromCoach = msgObj.sender === 'Coach';
+    let targetPlayerIds = [];
+
+    if (isFromCoach) {
+      if (msgObj.recipientEmail === 'all') {
+        // Enviar para todos os pais subscritos
+        targetPlayerIds = registrations
+          .filter((r) => r.status === 'accepted' && r.onesignal_player_id)
+          .map((r) => r.onesignal_player_id);
+      } else {
+        // Enviar para o encarregado específico
+        const targetParent = registrations.find(
+          (r) => (r.email || r.parentEmail || r.parent_email) === msgObj.recipientEmail
+        );
+        if (targetParent?.onesignal_player_id) {
+          targetPlayerIds = [targetParent.onesignal_player_id];
+        }
+      }
+
+      triggerPushNotification({
+        playerIds: targetPlayerIds.length > 0 ? targetPlayerIds : undefined,
+        title: `💬 Mensagem do Treinador`,
+        message: msgObj.text || msgObj.message || 'Nova mensagem do clube'
+      });
+    } else {
+      // Se for o Pai a enviar mensagem para o Treinador
+      triggerPushNotification({
+        title: `💬 Nova mensagem de ${msgObj.senderName || 'Encarregado'}`,
+        message: msgObj.text || msgObj.message || 'Respondeu no chat do clube'
+      });
+    }
   };
 
   return (
