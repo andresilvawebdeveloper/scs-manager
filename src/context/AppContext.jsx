@@ -106,6 +106,7 @@ export function AppProvider({ children }) {
   useEffect(() => {
     fetchRegistrations();
     fetchEvents();
+    fetchEventAttendances();
 
     // 1. Verificar sessão ativa no Supabase Auth
     const checkActiveSession = async () => {
@@ -190,6 +191,25 @@ export function AppProvider({ children }) {
       }
     } catch (err) {
       console.error('Erro ao carregar atletas:', err.message);
+    }
+  };
+
+  // Carregar presenças a eventos guardadas na base de dados
+  const fetchEventAttendances = async () => {
+    try {
+      const { data, error } = await supabase.from('event_attendances').select('*');
+      if (error) throw error;
+      
+      if (data) {
+        const loadedMap = {};
+        data.forEach((item) => {
+          const key = `${item.event_id}_${item.athlete_id}`;
+          loadedMap[key] = { status: item.status };
+        });
+        setEventAttendances(loadedMap);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar presenças a eventos:', err.message);
     }
   };
 
@@ -592,12 +612,35 @@ export function AppProvider({ children }) {
     }
   };
 
-  const toggleEventAttendance = (eventId, athleteId) => {
+  // Função ligada ao Supabase para sincronizar a confirmação de presença a eventos
+  const toggleEventAttendance = async (eventId, athleteId, forcedStatus = undefined) => {
     const key = `${eventId}_${athleteId}`;
+    
+    const current = eventAttendances[key];
+    const currentStatus = typeof current === 'object' ? current?.status : current;
+    
+    const newStatus = forcedStatus !== undefined ? forcedStatus : !currentStatus;
+
+    // 1. Atualização imediata do estado local
     setEventAttendances((prev) => ({
       ...prev,
-      [key]: !prev[key],
+      [key]: { status: newStatus },
     }));
+
+    // 2. Gravação imediata na tabela do Supabase
+    try {
+      const { error } = await supabase
+        .from('event_attendances')
+        .upsert({
+          event_id: String(eventId),
+          athlete_id: String(athleteId),
+          status: newStatus,
+        }, { onConflict: 'event_id, athlete_id' });
+
+      if (error) throw error;
+    } catch (err) {
+      console.error('Erro ao sincronizar presença no Supabase:', err.message);
+    }
   };
 
   // Gestão de Aulas de Adultos
