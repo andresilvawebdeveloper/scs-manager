@@ -38,6 +38,7 @@ const triggerPushNotification = async ({ playerIds, title, message, url }) => {
 
 export function AppProvider({ children }) {
   const [registrations, setRegistrations] = useState([]);
+  const [adultRegistrations, setAdultRegistrations] = useState([]);
   const [events, setEvents] = useState([]);
   const [currentCoach, setCurrentCoach] = useState(null);
 
@@ -51,10 +52,7 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : {};
   });
 
-  const [adultClasses, setAdultClasses] = useState(() => {
-    const saved = localStorage.getItem('scs_adult_classes');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [adultClasses, setAdultClasses] = useState([]);
 
   const [messages, setMessages] = useState(() => {
     const saved = localStorage.getItem('scs_messages');
@@ -105,8 +103,10 @@ export function AppProvider({ children }) {
   // Carregar dados iniciais e subscrever a alterações de sessão no Supabase
   useEffect(() => {
     fetchRegistrations();
+    fetchAdultRegistrations();
     fetchEvents();
     fetchEventAttendances();
+    fetchAdultClasses();
 
     // 1. Verificar sessão ativa no Supabase Auth
     const checkActiveSession = async () => {
@@ -167,10 +167,6 @@ export function AppProvider({ children }) {
   }, [eventAttendances]);
 
   useEffect(() => {
-    localStorage.setItem('scs_adult_classes', JSON.stringify(adultClasses));
-  }, [adultClasses]);
-
-  useEffect(() => {
     localStorage.setItem('scs_messages', JSON.stringify(messages));
   }, [messages]);
 
@@ -194,6 +190,23 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Carregar inscrições de adultos da tabela dedicada 'adult_registrations'
+  const fetchAdultRegistrations = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('adult_registrations')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
+      if (data) {
+        setAdultRegistrations(data);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar inscrições de adultos:', err.message);
+    }
+  };
+
   // Carregar presenças a eventos guardadas na base de dados
   const fetchEventAttendances = async () => {
     try {
@@ -210,6 +223,33 @@ export function AppProvider({ children }) {
       }
     } catch (err) {
       console.error('Erro ao carregar presenças a eventos:', err.message);
+    }
+  };
+
+  // Carregar Aulas de Adultos do Supabase
+  const fetchAdultClasses = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('adult_classes')
+        .select('*')
+        .order('created_at', { ascending: false });
+
+      if (error) {
+        console.error('Erro ao carregar aulas de adultos:', error.message);
+        return;
+      }
+      if (data) {
+        const formatted = data.map((c) => ({
+          id: c.id,
+          date: c.date,
+          time: c.time,
+          maxSeats: c.max_seats || c.maxSeats || 15,
+          enrolledParents: c.enrolled_parents || c.enrolledParents || []
+        }));
+        setAdultClasses(formatted);
+      }
+    } catch (err) {
+      console.error('Erro ao processar aulas de adultos:', err.message);
     }
   };
 
@@ -311,7 +351,7 @@ export function AppProvider({ children }) {
     const newReg = {
       id: generatedId,
       status: 'pending',
-      assigned_class: 'Formação geral',
+      assigned_class: formData.assigned_class || 'Formação geral',
       access_code: assignedCode,
       athlete_name: formData.athlete_name || formData.athleteName || '',
       birth_date: formData.birth_date || formData.birthDate || '',
@@ -356,6 +396,53 @@ export function AppProvider({ children }) {
       };
     } catch (err) {
       console.error('Falha de ligação:', err.message);
+      return { 
+        success: false, 
+        message: 'Erro ao conectar à base de dados: ' + err.message 
+      };
+    }
+  };
+
+  // Submeter nova inscrição de adulto na tabela dedicada 'adult_registrations'
+  const addAdultRegistration = async (formData) => {
+    const assignedCode = generateSCSCode();
+    const generatedId = typeof crypto !== 'undefined' && crypto.randomUUID 
+      ? crypto.randomUUID() 
+      : `adult_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+
+    const newAdultReg = {
+      id: generatedId,
+      status: 'pending',
+      access_code: assignedCode,
+      full_name: formData.athlete_name || formData.fullName || '',
+      birth_date: formData.birth_date || formData.birthDate || '',
+      gender: formData.gender || 'Masculino',
+      cc: formData.athlete_cc || formData.cc || '',
+      nif: formData.athlete_nif || formData.nif || '',
+      address: formData.address || '',
+      city: formData.city || '',
+      postal_code: formData.postal_code || formData.postalCode || '',
+      phone: formData.phone || '',
+      email: formData.email || '',
+      payment_mode: formData.adultClassesPaymentMode || formData.paymentMode || 'Mensal',
+    };
+
+    try {
+      const { error } = await supabase
+        .from('adult_registrations')
+        .insert([newAdultReg]);
+
+      if (error) throw error;
+
+      await fetchAdultRegistrations();
+
+      return { 
+        success: true, 
+        message: 'Inscrição de adulto submetida com sucesso! Aguarde a validação do treinador.',
+        accessCode: assignedCode
+      };
+    } catch (err) {
+      console.error('Falha ao inserir inscrição de adulto:', err.message);
       return { 
         success: false, 
         message: 'Erro ao conectar à base de dados: ' + err.message 
@@ -426,6 +513,21 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Atualizar dados do aluno adulto pela própria área pessoal
+  const updateAdultRegistration = async (id, updatedData) => {
+    try {
+      const { error } = await supabase
+        .from('adult_registrations')
+        .update(updatedData)
+        .eq('id', id);
+
+      if (error) throw error;
+      await fetchAdultRegistrations();
+    } catch (err) {
+      console.error('Erro ao atualizar dados do adulto:', err.message);
+    }
+  };
+
   // Login do Encarregado de Educação via Código de Acesso
   const loginParentByCode = (code) => {
     if (!code) {
@@ -475,6 +577,37 @@ export function AppProvider({ children }) {
       }
     } catch (err) {
       console.error("Erro ao guardar OneSignal Player ID no login do pai:", err);
+    }
+
+    return { success: true, registration };
+  };
+
+  // Login específico para Adultos via Código de Acesso
+  const loginAdultByCode = (code) => {
+    if (!code) {
+      return { success: false, message: 'Por favor, insira o código de acesso.' };
+    }
+
+    const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+
+    const registration = adultRegistrations.find((reg) => {
+      const dbCodeRaw = reg.access_code || '';
+      const cleanDbCode = dbCodeRaw.toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return cleanDbCode === cleanInput && cleanDbCode.length > 0;
+    });
+
+    if (!registration) {
+      return { 
+        success: false, 
+        message: 'Código de acesso de adulto não encontrado.' 
+      };
+    }
+
+    if (registration.status !== 'accepted') {
+      return { 
+        success: false, 
+        message: 'A sua inscrição ainda está pendente de validação pelo treinador.' 
+      };
     }
 
     return { success: true, registration };
@@ -643,47 +776,77 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Gestão de Aulas de Adultos
-  const addAdultClass = (classData) => {
-    setAdultClasses((prev) => [classData, ...prev]);
+  // Gestão de Aulas de Adultos com persistência no Supabase
+  const addAdultClass = async (classData) => {
+    try {
+      const payload = {
+        date: classData.date,
+        time: classData.time,
+        max_seats: classData.maxSeats || 15,
+        enrolled_parents: classData.enrolledParents || []
+      };
+      if (classData.id) {
+        payload.id = classData.id;
+      }
+
+      const { error } = await supabase.from('adult_classes').insert([payload]);
+      if (error) throw error;
+      await fetchAdultClasses();
+    } catch (err) {
+      console.error('Erro ao criar aula de adultos:', err.message);
+    }
   };
 
-  const deleteAdultClass = (classId) => {
-    setAdultClasses((prev) => prev.filter((c) => c.id !== classId));
+  const deleteAdultClass = async (classId) => {
+    try {
+      const { error } = await supabase.from('adult_classes').delete().eq('id', classId);
+      if (error) throw error;
+      await fetchAdultClasses();
+    } catch (err) {
+      console.error('Erro ao eliminar aula de adultos:', err.message);
+    }
   };
 
-  const enrollInAdultClass = (classId, parentInfo) => {
-    setAdultClasses((prev) =>
-      prev.map((c) => {
-        if (c.id === classId) {
-          const alreadyEnrolled = (c.enrolledParents || []).some(
-            (p) => p.id === parentInfo.id || p.email === parentInfo.email
-          );
-          if (alreadyEnrolled) return c;
-          if ((c.enrolledParents || []).length >= c.maxSeats) return c;
+  const enrollInAdultClass = async (classId, parentInfo) => {
+    const targetClass = adultClasses.find(c => c.id === classId);
+    if (!targetClass) return;
 
-          return {
-            ...c,
-            enrolledParents: [...(c.enrolledParents || []), parentInfo]
-          };
-        }
-        return c;
-      })
-    );
+    const currentEnrolled = targetClass.enrolledParents || [];
+    const alreadyEnrolled = currentEnrolled.some((p) => p.id === parentInfo.id || p.email === parentInfo.email);
+    if (alreadyEnrolled || currentEnrolled.length >= targetClass.maxSeats) return;
+
+    const updatedEnrolled = [...currentEnrolled, parentInfo];
+
+    try {
+      const { error } = await supabase
+        .from('adult_classes')
+        .update({ enrolled_parents: updatedEnrolled })
+        .eq('id', classId);
+
+      if (error) throw error;
+      await fetchAdultClasses();
+    } catch (err) {
+      console.error('Erro ao inscrever na aula de adultos:', err.message);
+    }
   };
 
-  const cancelAdultClassEnrollment = (classId, parentId) => {
-    setAdultClasses((prev) =>
-      prev.map((c) => {
-        if (c.id === classId) {
-          return {
-            ...c,
-            enrolledParents: (c.enrolledParents || []).filter((p) => p.id !== parentId)
-          };
-        }
-        return c;
-      })
-    );
+  const cancelAdultClassEnrollment = async (classId, parentId) => {
+    const targetClass = adultClasses.find(c => c.id === classId);
+    if (!targetClass) return;
+
+    const updatedEnrolled = (targetClass.enrolledParents || []).filter((p) => p.id !== parentId);
+
+    try {
+      const { error } = await supabase
+        .from('adult_classes')
+        .update({ enrolled_parents: updatedEnrolled })
+        .eq('id', classId);
+
+      if (error) throw error;
+      await fetchAdultClasses();
+    } catch (err) {
+      console.error('Erro ao cancelar inscrição na aula de adultos:', err.message);
+    }
   };
 
   // Enviar Mensagem no Chat + Guardar no Supabase + Notificação Push (WhatsApp Style)
@@ -730,9 +893,9 @@ export function AppProvider({ children }) {
         message: msgObj.text || msgObj.message || 'Nova mensagem do clube'
       });
     } else {
-      // Se for o Pai a enviar mensagem para o Treinador
+      // Se for o Pai/Adulto a enviar mensagem para o Treinador
       triggerPushNotification({
-        title: `💬 Nova mensagem de ${msgObj.senderName || 'Encarregado'}`,
+        title: `💬 Nova mensagem de ${msgObj.senderName || 'Participante'}`,
         message: msgObj.text || msgObj.message || 'Respondeu no chat do clube'
       });
     }
@@ -742,6 +905,7 @@ export function AppProvider({ children }) {
     <AppContext.Provider
       value={{
         registrations,
+        adultRegistrations,
         attendances,
         events,
         eventAttendances,
@@ -749,10 +913,13 @@ export function AppProvider({ children }) {
         messages,
         currentCoach,
         addRegistration,
+        addAdultRegistration,
         updateRegistrationStatus,
         removeAcceptedAthlete,
         updateRegistrationByParent,
+        updateAdultRegistration,
         loginParentByCode,
+        loginAdultByCode,
         loginCoach,
         logoutCoach,
         toggleAttendance,
@@ -765,7 +932,8 @@ export function AppProvider({ children }) {
         enrollInAdultClass,
         cancelAdultClassEnrollment,
         sendMessage,
-        fetchRegistrations
+        fetchRegistrations,
+        fetchAdultRegistrations
       }}
     >
       {children}

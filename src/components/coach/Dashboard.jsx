@@ -18,9 +18,8 @@ export default function Dashboard({ onLogout }) {
     deleteEvent,
     eventAttendances,
     toggleEventAttendance,
-    adultClasses,
-    addAdultClass,
-    deleteAdultClass,
+    adultRegistrations,
+    fetchAdultRegistrations,
     messages,
     sendMessage
   } = useApp();
@@ -30,6 +29,9 @@ export default function Dashboard({ onLogout }) {
   useEffect(() => {
     if (fetchRegistrations) {
       fetchRegistrations();
+    }
+    if (fetchAdultRegistrations) {
+      fetchAdultRegistrations();
     }
   }, []);
 
@@ -52,10 +54,6 @@ export default function Dashboard({ onLogout }) {
   const availableCoaches = [
     'Joana', 'Susana', 'Ricardo', 'Pedro', 'Marta', 'Sofia', 'Inês', 'Maria'
   ];
-
-  const [parentClassDate, setParentClassDate] = useState('');
-  const [parentClassTime, setParentClassTime] = useState('18:15 - 19:00');
-  const [parentClassMaxSeats, setParentClassMaxSeats] = useState(15);
 
   const [chatTarget, setChatTarget] = useState('all');
   const [chatText, setChatText] = useState('');
@@ -151,7 +149,7 @@ export default function Dashboard({ onLogout }) {
   const pendingList = registrations.filter((r) => r.status === 'pending');
   const acceptedList = registrations.filter((r) => r.status === 'accepted');
 
-  const [localAdultClasses, setLocalAdultClasses] = useState(adultClasses || []);
+  const stormfitRegistrations = adultRegistrations || [];
 
   const handleClassChange = (id, className) => {
     setSelectedClasses({ ...selectedClasses, [id]: className });
@@ -266,29 +264,6 @@ export default function Dashboard({ onLogout }) {
     setNewEventCoaches([]);
   };
 
-  const handleCreateParentClass = (e) => {
-    e.preventDefault();
-    if (!parentClassDate || !parentClassMaxSeats) return;
-
-    const newClass = {
-      id: Date.now().toString(),
-      date: parentClassDate,
-      time: parentClassTime,
-      maxSeats: parseInt(parentClassMaxSeats, 10),
-      enrolledParents: [],
-    };
-
-    if (addAdultClass) {
-      addAdultClass(newClass);
-    } else {
-      setLocalAdultClasses([...localAdultClasses, newClass]);
-    }
-
-    setParentClassDate('');
-    setParentClassMaxSeats(15);
-    alert('Aula para Encarregados criada com sucesso!');
-  };
-
   const handleSendChatMessage = async (e) => {
     e.preventDefault();
     if (!chatText.trim()) return;
@@ -395,8 +370,6 @@ export default function Dashboard({ onLogout }) {
     setChatTarget(email);
     setActiveTab('communication');
   };
-
-  const activeParentClassesList = adultClasses || localAdultClasses;
 
   const allMessagesList = messages || [];
   const currentChatMessages = allMessagesList.filter(
@@ -659,11 +632,11 @@ export default function Dashboard({ onLogout }) {
           </div>
           <div className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-gray-200 flex items-center space-x-2 sm:space-x-3">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center font-bold text-xs">
-              {activeParentClassesList.length}
+              {stormfitRegistrations.length}
             </div>
             <div>
-              <p className="text-[10px] sm:text-[11px] text-gray-500 font-medium">Aulas</p>
-              <h3 className="text-xs font-bold text-gray-900">Pais</h3>
+              <p className="text-[10px] sm:text-[11px] text-gray-500 font-medium">Stormfit</p>
+              <h3 className="text-xs font-bold text-gray-900">Adultos</h3>
             </div>
           </div>
         </div>
@@ -705,7 +678,7 @@ export default function Dashboard({ onLogout }) {
             Eventos
           </button>
           <button
-            onClick={() => setActiveTab('parentClasses')}
+            onClick={() => { setActiveTab('parentClasses'); fetchAdultRegistrations && fetchAdultRegistrations(); }}
             className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
               activeTab === 'parentClasses' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
@@ -806,6 +779,7 @@ export default function Dashboard({ onLogout }) {
                             <option value="Fusion">Fusion (Formação Avançada)</option>
                             <option value="Thunder">Thunder (Pré-Representação)</option>
                             <option value="Firestorm">Firestorm (Representação)</option>
+                            <option value="Stormfit">Stormfit (adultos)</option>
                           </select>
                         </div>
 
@@ -905,7 +879,7 @@ export default function Dashboard({ onLogout }) {
                               
                               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
-                                  {/* ESTILIZAÇÃO ESTRUTURAL DA FOTO NO CARTÃO */}
+                                  {/* ESTILIZAÇÃO ESTRUTURAL DA FOTO NO CARTÃO (SEM "OK") */}
                                   {photoUrl ? (
                                     <div className="relative flex-shrink-0">
                                       <img 
@@ -913,9 +887,6 @@ export default function Dashboard({ onLogout }) {
                                         alt={name} 
                                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-clubRed/20 shadow-md"
                                       />
-                                      <span className="absolute -bottom-1 -right-1 bg-clubRed text-white text-[8px] font-bold px-1.5 py-0.2 rounded-md shadow-xs">
-                                        OK
-                                      </span>
                                     </div>
                                   ) : (
                                     <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0 shadow-inner">
@@ -968,7 +939,6 @@ export default function Dashboard({ onLogout }) {
 
                               {isExpanded && (
                                 <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
-                                  {/* Exibição Expandida da Foto com Estilo "Cartão de Identificação" */}
                                   {photoUrl && (
                                     <div className="flex flex-col items-center sm:items-start pb-2">
                                       <div className="bg-white p-2 rounded-2xl border border-gray-200 shadow-md flex flex-col items-center space-y-2">
@@ -1181,6 +1151,7 @@ export default function Dashboard({ onLogout }) {
                     <option value="Fusion">Fusion</option>
                     <option value="Thunder">Thunder</option>
                     <option value="Firestorm">Firestorm</option>
+                    <option value="Stormfit">Stormfit</option>
                   </select>
                 </div>
 
@@ -1211,6 +1182,7 @@ export default function Dashboard({ onLogout }) {
                 if (selectedClassFilter === 'Fusion') return assigned === 'Fusion' || assigned === 'Formação avançada';
                 if (selectedClassFilter === 'Thunder') return assigned === 'Thunder' || assigned === 'Pré-Representação';
                 if (selectedClassFilter === 'Firestorm') return assigned === 'Firestorm' || assigned === 'Representação';
+                if (selectedClassFilter === 'Stormfit') return assigned === 'Stormfit' || assigned === 'Adultos';
                 return assigned === selectedClassFilter;
               });
 
@@ -1363,7 +1335,7 @@ export default function Dashboard({ onLogout }) {
                 <div className="sm:col-span-2 space-y-2">
                   <label className="block text-[11px] font-medium text-gray-600">Turmas Alvo (Selecione uma ou mais)</label>
                   <div className="flex flex-wrap gap-2">
-                    {['Spark', 'Flame', 'Fusion', 'Thunder', 'Firestorm'].map((cls) => {
+                    {['Spark', 'Flame', 'Fusion', 'Thunder', 'Firestorm', 'Stormfit'].map((cls) => {
                       const isSelected = newEventClasses.includes(cls);
                       return (
                         <button
@@ -1458,6 +1430,7 @@ export default function Dashboard({ onLogout }) {
                         if (target === 'Fusion') return athleteClass === 'Fusion' || athleteClass === 'Formação avançada';
                         if (target === 'Thunder') return athleteClass === 'Thunder' || athleteClass === 'Pré-Representação';
                         if (target === 'Firestorm') return athleteClass === 'Firestorm' || athleteClass === 'Representação';
+                        if (target === 'Stormfit') return athleteClass === 'Stormfit' || athleteClass === 'Adultos';
                         return athleteClass === target;
                       });
                     });
@@ -1640,51 +1613,49 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: AULAS DE PAIS */}
+        {/* SECÇÃO: AULAS DE PAIS (STORMFIT) */}
         {activeTab === 'parentClasses' && (
           <div className="space-y-6">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-              <h2 className="font-bold text-gray-800 text-sm">Abertura de Aula para Encarregados (Adultos)</h2>
-              <form onSubmit={handleCreateParentClass} className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div className="flex justify-between items-center border-b border-gray-100 pb-3">
                 <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Data da Aula</label>
-                  <input
-                    type="date"
-                    value={parentClassDate}
-                    onChange={(e) => setParentClassDate(e.target.value)}
-                    className="w-full p-2.5 border rounded-xl text-xs bg-gray-50"
-                    required
-                  />
+                  <h2 className="font-bold text-gray-800 text-sm">🏋️ Lista de Inscrições / Aulas Stormfit (Adultos)</h2>
+                  <p className="text-xs text-gray-500">Inscrições submetidas na turma de adultos</p>
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Horário</label>
-                  <input
-                    type="text"
-                    value={parentClassTime}
-                    onChange={(e) => setParentClassTime(e.target.value)}
-                    className="w-full p-2.5 border rounded-xl text-xs bg-gray-50"
-                    required
-                  />
+                <span className="text-xs bg-purple-50 text-purple-700 font-bold px-2.5 py-1 rounded-lg">
+                  {stormfitRegistrations.length} {stormfitRegistrations.length === 1 ? 'Inscrição' : 'Inscrições'}
+                </span>
+              </div>
+
+              {stormfitRegistrations.length === 0 ? (
+                <div className="text-center py-8 text-xs text-gray-400">
+                  Não existem inscrições registadas na turma Stormfit de momento.
                 </div>
-                <div>
-                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Vagas</label>
-                  <input
-                    type="number"
-                    value={parentClassMaxSeats}
-                    onChange={(e) => setParentClassMaxSeats(e.target.value)}
-                    className="w-full p-2.5 border rounded-xl text-xs bg-gray-50"
-                    required
-                  />
+              ) : (
+                <div className="space-y-3">
+                  {stormfitRegistrations.map((adult) => (
+                    <div key={adult.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2">
+                      <div className="flex justify-between items-start">
+                        <div>
+                          <h3 className="font-bold text-gray-900 text-sm">{adult.full_name || adult.fullName}</h3>
+                          <p className="text-xs text-gray-500">
+                            Email: <span className="font-semibold text-gray-700">{adult.email}</span> | Telemóvel: <span className="font-semibold text-gray-700">{adult.phone}</span>
+                          </p>
+                        </div>
+                        <span className="text-[10px] bg-purple-100 text-purple-800 font-bold px-2.5 py-1 rounded-full uppercase">
+                          {adult.payment_mode || 'Mensal'}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-gray-500 flex flex-wrap gap-x-4 pt-1 border-t border-gray-200/60">
+                        <span>📅 Nascimento: {adult.birth_date || 'N/D'}</span>
+                        <span>💳 NIF: {adult.nif || 'N/D'}</span>
+                        <span>📍 Localidade: {adult.city || 'N/D'}</span>
+                        <span className="font-mono text-gray-700">Código: {adult.access_code}</span>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-                <div className="sm:col-span-3">
-                  <button
-                    type="submit"
-                    className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl text-xs transition shadow"
-                  >
-                    + Criar Aula
-                  </button>
-                </div>
-              </form>
+              )}
             </div>
           </div>
         )}

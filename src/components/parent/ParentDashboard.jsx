@@ -5,9 +5,6 @@ import { supabase } from '../../services/supabaseClient';
 export default function ParentDashboard({ registration, onLogout }) {
   const { 
     updateRegistrationByParent, 
-    adultClasses, 
-    enrollInAdultClass, 
-    cancelAdultClassEnrollment,
     events,
     eventAttendances,
     toggleEventAttendance,
@@ -15,7 +12,7 @@ export default function ParentDashboard({ registration, onLogout }) {
     sendMessage
   } = useApp();
 
-  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'events', 'chat', 'adultClasses'
+  const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'events', 'chat'
   const [isEditing, setIsEditing] = useState(false);
   const [formData, setFormData] = useState(registration);
   const [successMsg, setSuccessMsg] = useState('');
@@ -70,8 +67,6 @@ export default function ParentDashboard({ registration, onLogout }) {
   const myChatMessages = allMessagesList.filter(
     (m) => m.recipientEmail === 'all' || m.recipientEmail === parentEmail || m.senderEmail === parentEmail
   );
-
-  const activeAdultClasses = adultClasses || [];
 
   const sizeOptions = [
     'Não pretendo / Não preciso',
@@ -166,27 +161,6 @@ export default function ParentDashboard({ registration, onLogout }) {
 
   const currentPhotoUrl = previewPhotoUrl || formData.photo_url || formData.photoUrl;
 
-  const handleEnroll = (classId) => {
-    const parentIdentifier = {
-      id: registration.id,
-      name: registration.parentName || formData.parentName,
-      email: parentEmail,
-      timestamp: new Date().toISOString()
-    };
-
-    if (enrollInAdultClass) {
-      enrollInAdultClass(classId, parentIdentifier);
-    }
-  };
-
-  const handleCancelEnrollment = (classId) => {
-    if (window.confirm('Tem certeza que pretende cancelar a sua inscrição nesta aula?')) {
-      if (cancelAdultClassEnrollment) {
-        cancelAdultClassEnrollment(classId, registration.id);
-      }
-    }
-  };
-
   // Enviar Mensagem no Chat do Encarregado
   const handleSendChatMessage = async (e) => {
     e.preventDefault();
@@ -234,6 +208,7 @@ export default function ParentDashboard({ registration, onLogout }) {
       {/* Header */}
       <header className="bg-clubRed text-white p-4 shadow-md flex justify-between items-center">
         <div className="flex items-center space-x-2">
+          {/* Logo requisitado */}
           <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center p-0.5">
             <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
           </div>
@@ -244,9 +219,9 @@ export default function ParentDashboard({ registration, onLogout }) {
         </button>
       </header>
 
-      {/* Navegação por Abas */}
+      {/* Navegação por Abas (Atualizada para 3 abas) */}
       <div className="max-w-2xl mx-auto px-4 mt-6">
-        <div className="grid grid-cols-4 gap-1 bg-white p-1 rounded-2xl shadow-sm border border-gray-200 text-center">
+        <div className="grid grid-cols-3 gap-1 bg-white p-1 rounded-2xl shadow-sm border border-gray-200 text-center">
           <button
             onClick={() => setActiveTab('overview')}
             className={`py-2 text-[11px] sm:text-xs font-bold rounded-xl transition ${
@@ -270,14 +245,6 @@ export default function ParentDashboard({ registration, onLogout }) {
             }`}
           >
             Chat 💬
-          </button>
-          <button
-            onClick={() => setActiveTab('adultClasses')}
-            className={`py-2 text-[11px] sm:text-xs font-bold rounded-xl transition ${
-              activeTab === 'adultClasses' ? 'bg-clubRed text-white shadow' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            Aulas Pais
           </button>
         </div>
       </div>
@@ -541,12 +508,10 @@ export default function ParentDashboard({ registration, onLogout }) {
               myClassEvents.map((ev) => {
                 const isAttending = !!(eventAttendances && eventAttendances[`${ev.id}_${registration.id}`]);
 
-                // Obtenção flexível das propriedades de local e horários
                 const location = ev.location || ev.event_location || ev.place;
                 const eventTime = ev.time || ev.event_time || ev.startTime || ev.start_time;
                 const meetingTime = ev.meetingTime || ev.meeting_time || ev.pontoEncontro;
 
-                // Obtenção flexível de turmas do evento
                 let classesList = [];
                 if (Array.isArray(ev.targetClasses)) classesList = ev.targetClasses;
                 else if (typeof ev.targetClasses === 'string') classesList = ev.targetClasses.split(',').map(c => c.trim());
@@ -577,7 +542,7 @@ export default function ParentDashboard({ registration, onLogout }) {
                         </span>
                       </div>
 
-                      {/* HORÁRIOS PROGRAMADOS / DETALHADOS */}
+                      {/* HORÁRIOS */}
                       <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
                         <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
                           ⏰ Horários Programados:
@@ -634,7 +599,7 @@ export default function ParentDashboard({ registration, onLogout }) {
                       )}
                     </div>
 
-                    {/* CONFIRMAÇÃO DE PRESENÇA DO ATLETA PELO PAI */}
+                    {/* CONFIRMAÇÃO DE PRESENÇA */}
                     <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-red-50/40 p-3.5 rounded-xl border border-red-100">
                       <div>
                         <span className="text-xs font-bold text-gray-900 block">
@@ -750,59 +715,6 @@ export default function ParentDashboard({ registration, onLogout }) {
               </button>
             </form>
 
-          </div>
-        )}
-
-        {/* ABA 4: AULAS PAIS */}
-        {activeTab === 'adultClasses' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-            <h2 className="font-bold text-gray-800 text-sm">Aulas de Adultos (Segundas-Feiras)</h2>
-            {activeAdultClasses.length === 0 ? (
-              <div className="bg-gray-50 p-4 rounded-xl border border-gray-100 text-center">
-                <p className="text-xs text-gray-400">Não existem aulas agendadas de momento pelo treinador.</p>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {activeAdultClasses.map((classItem) => {
-                  const enrolledList = classItem.enrolledParents || [];
-                  const myIndex = enrolledList.findIndex((p) => p.id === registration.id || p.name === registration.parentName);
-                  const isEnrolled = myIndex !== -1;
-                  const isFull = enrolledList.length >= classItem.maxSeats;
-
-                  return (
-                    <div key={classItem.id} className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="text-xs font-bold text-gray-900 block">📅 Data: {classItem.date}</span>
-                          <span className="text-[11px] text-gray-500 block">⏰ Horário: {classItem.time}</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-gray-200 flex items-center justify-between">
-                        {isEnrolled ? (
-                          <div className="flex items-center justify-between w-full">
-                            <span className="text-xs font-bold text-emerald-700">✓ Inscrito (Lugar #{myIndex + 1})</span>
-                            <button onClick={() => handleCancelEnrollment(classItem.id)} className="px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-semibold">
-                              Cancelar Inscrição
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => handleEnroll(classItem.id)}
-                            disabled={isFull}
-                            className={`w-full py-2.5 rounded-xl text-xs font-bold ${
-                              isFull ? 'bg-gray-200 text-gray-400' : 'bg-clubRed text-white'
-                            }`}
-                          >
-                            {isFull ? 'Vagas Preenchidas' : 'Reservar Minha Vaga'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
           </div>
         )}
 
