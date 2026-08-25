@@ -22,7 +22,11 @@ export default function Dashboard({ onLogout }) {
     fetchAdultRegistrations,
     updateAdultRegistration,
     messages,
-    sendMessage
+    sendMessage,
+    adultClasses,
+    addAdultClass,
+    deleteAdultClass,
+    fetchAdultClasses
   } = useApp();
 
   const isAdmin = currentCoach?.role === 'admin';
@@ -33,6 +37,9 @@ export default function Dashboard({ onLogout }) {
     }
     if (fetchAdultRegistrations) {
       fetchAdultRegistrations();
+    }
+    if (fetchAdultClasses) {
+      fetchAdultClasses();
     }
   }, []);
 
@@ -52,6 +59,12 @@ export default function Dashboard({ onLogout }) {
   const [newEventMeetingTime, setNewEventMeetingTime] = useState('');
   const [newEventClasses, setNewEventClasses] = useState(['Flame']);
   const [newEventCoaches, setNewEventCoaches] = useState([]);
+
+  // Estados para a Criação de Aulas de Adultos / Pais
+  const [newAdultClassDate, setNewAdultClassDate] = useState('');
+  const [newAdultClassTime, setNewAdultClassTime] = useState('');
+  const [newAdultClassMaxSeats, setNewAdultClassMaxSeats] = useState(15);
+  const [newAdultClassDaysBefore, setNewAdultClassDaysBefore] = useState(1);
 
   const availableCoaches = [
     'Joana', 'Susana', 'Ricardo', 'Pedro', 'Marta', 'Sofia', 'Inês', 'Maria'
@@ -76,18 +89,16 @@ export default function Dashboard({ onLogout }) {
     }
   }, [currentCoach]);
 
-  // Lógica de verificação de novas respostas a eventos (AJUSTADA PARA APARECER Apenas 1 VEZ)
+  // Lógica de verificação de novas respostas a eventos
   useEffect(() => {
     if (!events || events.length === 0 || !eventAttendances) return;
 
-    // Obter IDs de eventos já visualizados a partir do localStorage
     const seenEventIds = JSON.parse(localStorage.getItem('scs_seen_event_responses') || '[]');
     const unseenSummaries = {};
 
     Object.entries(eventAttendances).forEach(([key, attendanceData]) => {
       const [eventId, athleteId] = key.split('_');
       
-      // Se este evento já foi visualizado pelo treinador, ignora
       if (seenEventIds.includes(String(eventId))) return;
 
       const event = events.find((e) => String(e.id) === String(eventId));
@@ -123,7 +134,6 @@ export default function Dashboard({ onLogout }) {
     }
   }, [events, eventAttendances, registrations]);
 
-  // Função para fechar o modal e registar que já foi visto
   const handleCloseResponsesModal = () => {
     const seenEventIds = JSON.parse(localStorage.getItem('scs_seen_event_responses') || '[]');
     const newSeenIds = Object.values(newResponsesSummary).map((ev) => String(ev.id));
@@ -133,13 +143,8 @@ export default function Dashboard({ onLogout }) {
     setShowEventResponsesModal(false);
   };
 
-  // Estado para o Switch no separador de Atletas Ativos ('athletes' | 'birthdays')
   const [acceptedSubView, setAcceptedSubView] = useState('athletes');
-
-  // Estado para filtro de aniversários (0 = Todos, 1 a 12 = Meses)
   const [selectedBirthdayMonth, setSelectedBirthdayMonth] = useState('all');
-
-  // Estado local sincronizado para garantir fidelidade visual e na exportação
   const [localAttendances, setLocalAttendances] = useState({});
 
   useEffect(() => {
@@ -177,12 +182,9 @@ export default function Dashboard({ onLogout }) {
     setExpandedEventId((prev) => (prev === eventId ? null : eventId));
   };
 
-  // Função para definir o estado de presença exatamente na tecla pretendida
   const handleSetAthleteStatus = (athleteId, targetStatus) => {
     const key = `${athleteId}_${selectedDate}`;
     const currentStatus = localAttendances[key];
-    
-    // Se voltar a clicar na opção ativa, limpa o estado
     const newStatus = currentStatus === targetStatus ? null : targetStatus;
 
     setLocalAttendances((prev) => ({
@@ -289,6 +291,59 @@ export default function Dashboard({ onLogout }) {
     }
   };
 
+  // Função Corrigida para Criar Aula de Pais / Adultos com Sincronização via Contexto
+  const handleCreateAdultClass = async (e) => {
+    e.preventDefault();
+    if (!newAdultClassDate || !newAdultClassTime) return;
+
+    const newClassObj = {
+      date: newAdultClassDate,
+      time: newAdultClassTime,
+      max_seats: parseInt(newAdultClassMaxSeats, 10) || 15,
+      days_before: parseInt(newAdultClassDaysBefore, 10) || 1,
+      enrolled_parents: []
+    };
+
+    if (addAdultClass) {
+      const result = await addAdultClass(newClassObj);
+      if (result && result.success === false) {
+        alert("Erro ao criar aula: " + result.message);
+        return;
+      }
+    } else {
+      try {
+        const { error } = await supabase.from('adult_classes').insert([newClassObj]);
+        if (error) throw error;
+        if (fetchAdultClasses) fetchAdultClasses();
+      } catch (err) {
+        console.error('Erro ao inserir aula de adultos:', err);
+        alert('Erro ao criar aula: ' + err.message);
+        return;
+      }
+    }
+
+    setNewAdultClassDate('');
+    setNewAdultClassTime('');
+    setNewAdultClassMaxSeats(15);
+    setNewAdultClassDaysBefore(1);
+    alert('Aula de pais/adultos criada com sucesso!');
+  };
+
+  const handleDeleteAdultClass = async (classId) => {
+    if (!window.confirm("Tem a certeza que pretende eliminar esta aula de adultos?")) return;
+    if (deleteAdultClass) {
+      await deleteAdultClass(classId);
+    } else {
+      try {
+        const { error } = await supabase.from('adult_classes').delete().eq('id', classId);
+        if (error) throw error;
+        if (fetchAdultClasses) fetchAdultClasses();
+      } catch (err) {
+        console.error('Erro ao eliminar aula:', err);
+      }
+    }
+  };
+
   const handleToggleEventClass = (className) => {
     setNewEventClasses((prev) =>
       prev.includes(className)
@@ -388,7 +443,6 @@ export default function Dashboard({ onLogout }) {
     setIsSendingChat(false);
   };
 
-  // Função para Atualizar os Dados Pessoais do Treinador no Supabase
   const handleUpdateCoachProfile = async (e) => {
     e.preventDefault();
     setIsUpdatingProfile(true);
@@ -414,7 +468,7 @@ export default function Dashboard({ onLogout }) {
         return;
       }
 
-      const { data, error } = await supabase.auth.updateUser(updates);
+      const { error } = await supabase.auth.updateUser(updates);
 
       if (error) {
         throw error;
@@ -447,7 +501,6 @@ export default function Dashboard({ onLogout }) {
     (m) => chatTarget === 'all' ? m.recipientEmail === 'all' : (m.recipientEmail === chatTarget || m.senderEmail === chatTarget || m.recipient_email === chatTarget)
   );
 
-  // Agrupar atletas ativos por Turma
   const groupedAcceptedAthletes = acceptedList.reduce((acc, athlete) => {
     const className = athlete.assignedClass || athlete.assigned_class || 'Flame';
     if (!acc[className]) {
@@ -457,20 +510,18 @@ export default function Dashboard({ onLogout }) {
     return acc;
   }, {});
 
-  // Nomes dos meses em Português
   const monthNames = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
     'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
   ];
 
-  // Agrupar Aniversários dos Atletas Ativos por Mês
   const birthdaysByMonth = acceptedList.reduce((acc, athlete) => {
     const birthDateRaw = athlete.birthDate || athlete.birth_date;
     if (!birthDateRaw) return acc;
 
-    const parts = birthDateRaw.split('-'); // Esperado AAAA-MM-DD
+    const parts = birthDateRaw.split('-');
     if (parts.length >= 2) {
-      const monthIdx = parseInt(parts[1], 10) - 1; // 0-11
+      const monthIdx = parseInt(parts[1], 10) - 1;
       if (!isNaN(monthIdx) && monthIdx >= 0 && monthIdx < 12) {
         if (!acc[monthIdx]) acc[monthIdx] = [];
         acc[monthIdx].push(athlete);
@@ -479,7 +530,6 @@ export default function Dashboard({ onLogout }) {
     return acc;
   }, {});
 
-  // EXPORTAÇÃO PARA EXCEL COM AS SIGLAS REQUISITADAS (P, FJ, FNJ, L)
   const exportAttendancesToExcel = async () => {
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Presenças ');
@@ -516,10 +566,7 @@ export default function Dashboard({ onLogout }) {
     });
 
     let currentRow = 3;
-
-    // Obter fonte de dados mais atual para presenças
     const currentAttendancesMap = { ...attendances, ...localAttendances };
-
     const classesList = Object.keys(groupedAcceptedAthletes);
     const targetClasses = classesList.length > 0 ? classesList : [selectedClassFilter];
 
@@ -548,7 +595,6 @@ export default function Dashboard({ onLogout }) {
             const status = currentAttendancesMap[`${athlete.id}_${dateKey}`];
             const pCell = worksheet.getCell(currentRow, colTracker);
 
-            // MAPEAMENTO DE SIGLAS
             if (status === 'presente') pCell.value = 'P';
             else if (status === 'justificado') pCell.value = 'FJ';
             else if (status === 'injustificado') pCell.value = 'FNJ';
@@ -574,7 +620,6 @@ export default function Dashboard({ onLogout }) {
   return (
     <div className="min-h-screen bg-gray-100 pb-12">
       
-      {/* POPUP / MODAL DE NOVAS RESPOSTAS A EVENTOS */}
       {showEventResponsesModal && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 shadow-2xl border border-gray-100 space-y-5 animate-in fade-in zoom-in duration-200">
@@ -641,12 +686,12 @@ export default function Dashboard({ onLogout }) {
         </div>
       )}
 
-      {/* Header */}
+      {/* Header com o Logotipo solicitado */}
       <header className="bg-gradient-to-r from-clubRed to-red-700 text-white shadow-lg">
         <div className="max-w-4xl mx-auto px-4 py-5 flex justify-between items-center">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center p-1 shadow">
-              <img src="/logo_clube.png" alt="Logo" className="w-full h-full object-contain" />
+              <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
             </div>
             <div>
               <h1 className="font-bold text-lg leading-tight">Painel do Treinador</h1>
@@ -658,6 +703,7 @@ export default function Dashboard({ onLogout }) {
               onClick={() => {
                 if (fetchRegistrations) fetchRegistrations();
                 if (fetchAdultRegistrations) fetchAdultRegistrations();
+                if (fetchAdultClasses) fetchAdultClasses();
               }}
               className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl font-medium transition"
               title="Atualizar lista de inscrições"
@@ -752,7 +798,7 @@ export default function Dashboard({ onLogout }) {
             Eventos
           </button>
           <button
-            onClick={() => { setActiveTab('parentClasses'); fetchAdultRegistrations && fetchAdultRegistrations(); }}
+            onClick={() => { setActiveTab('parentClasses'); fetchAdultRegistrations && fetchAdultRegistrations(); fetchAdultClasses && fetchAdultClasses(); }}
             className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
               activeTab === 'parentClasses' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
@@ -885,7 +931,6 @@ export default function Dashboard({ onLogout }) {
               )}
             </div>
 
-            {/* SEÇÃO DE ADULTOS PENDENTES */}
             <div className="space-y-4 pt-4 border-t border-gray-200">
               <div className="flex justify-between items-center">
                 <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes (Adultos / Stormfit)</h2>
@@ -950,11 +995,9 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: ATLETAS ACEITES ORGANIZADOS POR TURMA OU ANIVERSÁRIOS (COM SWITCH) */}
+        {/* SECÇÃO: ATLETAS ACEITES */}
         {activeTab === 'accepted' && (
           <div className="space-y-6">
-            
-            {/* SWITCH DE NAVEGAÇÃO ENTRE VISTAS */}
             <div className="flex bg-gray-200/80 p-1 rounded-xl w-full sm:w-auto self-start border border-gray-300">
               <button
                 onClick={() => setAcceptedSubView('athletes')}
@@ -978,7 +1021,6 @@ export default function Dashboard({ onLogout }) {
               </button>
             </div>
 
-            {/* VISTA 1: LISTA DE ATLETAS ATIVOS ORGANIZADOS POR TURMA */}
             {acceptedSubView === 'athletes' && (
               <div className="space-y-6">
                 <h2 className="font-bold text-gray-800 text-sm">Atletas Ativos na Equipa</h2>
@@ -990,8 +1032,6 @@ export default function Dashboard({ onLogout }) {
                 ) : (
                   Object.entries(groupedAcceptedAthletes).map(([className, athletes]) => (
                     <div key={className} className="space-y-3">
-                      
-                      {/* Cabeçalho do Grupo da Turma */}
                       <div className="bg-gradient-to-r from-gray-900 to-gray-800 text-white px-5 py-3 rounded-xl flex justify-between items-center shadow-sm">
                         <div className="flex items-center space-x-2">
                           <span className="text-xs bg-clubRed px-2.5 py-0.5 rounded-md font-bold uppercase tracking-wider">
@@ -1004,7 +1044,6 @@ export default function Dashboard({ onLogout }) {
                         </span>
                       </div>
 
-                      {/* Lista de Atletas da Turma */}
                       <div className="space-y-3">
                         {athletes.map((reg) => {
                           const parentEmail = reg.email || reg.parentEmail || reg.parent_email;
@@ -1014,7 +1053,6 @@ export default function Dashboard({ onLogout }) {
 
                           return (
                             <div key={reg.id} className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                              
                               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
                                   {photoUrl ? (
@@ -1119,42 +1157,8 @@ export default function Dashboard({ onLogout }) {
                                       </p>
                                     </div>
                                   </div>
-
-                                  <div className="space-y-1">
-                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                      💳 Estatuto de Sócio
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                                      <p><strong>Nº de Sócio:</strong> {reg.memberNumber || reg.member_number || 'N/D'}</p>
-                                      <p><strong>Sócio Titular:</strong> {reg.memberType || reg.member_type || 'Atleta'}</p>
-                                    </div>
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                      🎽 Equipamento e Vestuário
-                                    </h4>
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1 text-gray-700">
-                                      <p><strong>Fato de Treino:</strong> {reg.tracksuitSize || reg.tracksuit_size || 'Não pretendo'}</p>
-                                      <p><strong>T-shirt Oficial:</strong> {reg.officialTshirtSize || reg.official_tshirt_size || 'Não pretendo'}</p>
-                                      <p><strong>T-shirt Vermelha:</strong> {reg.redTshirtSize || reg.red_tshirt_size || 'Não pretendo'}</p>
-                                      <p><strong>T-shirt Amarela:</strong> {reg.yellowTshirtSize || reg.yellow_tshirt_size || 'Não pretendo'}</p>
-                                    </div>
-                                  </div>
-
-                                  <div className="space-y-1">
-                                    <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                      🤸 Aulas para Encarregados
-                                    </h4>
-                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
-                                      <p><strong>Interesse:</strong> {reg.adultClassesInterest || reg.adult_classes_interest || 'Não'}</p>
-                                      <p><strong>Participantes:</strong> {reg.adultClassesParticipants || reg.adult_classes_participants || 'N/D'}</p>
-                                      <p><strong>Pagamento:</strong> {reg.adultClassesPaymentMode || reg.adult_classes_payment_mode || 'N/D'}</p>
-                                    </div>
-                                  </div>
                                 </div>
                               )}
-
                             </div>
                           );
                         })}
@@ -1165,7 +1169,6 @@ export default function Dashboard({ onLogout }) {
               </div>
             )}
 
-            {/* VISTA 2: PAINEL DE ANIVERSÁRIOS */}
             {acceptedSubView === 'birthdays' && (
               <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 border-b border-gray-100 pb-3">
@@ -1194,7 +1197,6 @@ export default function Dashboard({ onLogout }) {
                   </div>
                 </div>
 
-                {/* Lista de Aniversários */}
                 <div className="space-y-4">
                   {(() => {
                     const monthsToDisplay = selectedBirthdayMonth === 'all' 
@@ -1267,7 +1269,6 @@ export default function Dashboard({ onLogout }) {
                 </div>
               </div>
             )}
-
           </div>
         )}
 
@@ -1555,7 +1556,6 @@ export default function Dashboard({ onLogout }) {
                     const eventLocation = ev.location || ev.event_location;
                     const eventTime = ev.time || ev.event_time;
                     const meetingTime = ev.meetingTime || ev.meeting_time;
-
                     const isEventExpanded = expandedEventId === ev.id;
 
                     const eligibleAthletes = acceptedList.filter((athlete) => {
@@ -1617,19 +1617,6 @@ export default function Dashboard({ onLogout }) {
                                   {cls}
                                 </span>
                               ))}
-                            </div>
-
-                            <div className="flex items-center space-x-1.5 flex-wrap gap-y-1 pt-0.5">
-                              <span className="text-[11px] font-medium text-gray-500">Treinadores:</span>
-                              {coachesList.length > 0 ? (
-                                coachesList.map((coach, idx) => (
-                                  <span key={idx} className="text-[10px] bg-emerald-100 text-emerald-800 font-bold px-2 py-0.5 rounded-md">
-                                    {coach}
-                                  </span>
-                                ))
-                              ) : (
-                                <span className="text-[10px] text-gray-400 italic">Nenhum definido</span>
-                              )}
                             </div>
                           </div>
 
@@ -1706,7 +1693,6 @@ export default function Dashboard({ onLogout }) {
                                                 onClick={() => {
                                                   if (!isAttending) toggleEventAttendance(ev.id, athlete.id);
                                                 }}
-                                                title="Marcar como Presente / Vai"
                                                 className={`w-8 h-8 rounded-lg font-extrabold text-sm flex items-center justify-center transition border ${
                                                   isAttending
                                                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm scale-105'
@@ -1721,7 +1707,6 @@ export default function Dashboard({ onLogout }) {
                                                 onClick={() => {
                                                   if (isAttending) toggleEventAttendance(ev.id, athlete.id);
                                                 }}
-                                                title="Marcar como Faltou / Não vai"
                                                 className={`w-8 h-8 rounded-lg font-extrabold text-sm flex items-center justify-center transition border ${
                                                   !isAttending
                                                     ? 'bg-rose-600 text-white border-rose-600 shadow-sm scale-105'
@@ -1750,13 +1735,125 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: AULAS DE PAIS (STORMFIT) */}
+        {/* SECÇÃO: AULAS DE PAIS (STORMFIT / ADULTOS) COM CRIAÇÃO E GESTÃO */}
         {activeTab === 'parentClasses' && (
           <div className="space-y-6">
+            
+            {/* Formulário para Criar Aula de Adultos / Pais */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+              <h2 className="font-bold text-gray-800 text-sm">🏋️ Agendar Nova Aula de Pais / Adultos</h2>
+              <form onSubmit={handleCreateAdultClass} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Data da Aula (Ano-Mês-Dia)</label>
+                  <input
+                    type="date"
+                    value={newAdultClassDate}
+                    onChange={(e) => setNewAdultClassDate(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-xs bg-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Horário da Aula</label>
+                  <input
+                    type="time"
+                    value={newAdultClassTime}
+                    onChange={(e) => setNewAdultClassTime(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-xs bg-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Número Máximo de Vagas</label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={newAdultClassMaxSeats}
+                    onChange={(e) => setNewAdultClassMaxSeats(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-xs bg-white"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-medium text-gray-600 mb-1">Abrir Inscrição/Votação (Dias antes)</label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={newAdultClassDaysBefore}
+                    onChange={(e) => setNewAdultClassDaysBefore(e.target.value)}
+                    className="w-full p-2.5 border rounded-xl text-xs bg-white"
+                    required
+                  />
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Ex: 1 significa que abre 1 dia antes da aula. Quem tem pagamento mensal tem acesso automático imediato.</span>
+                </div>
+                <div className="sm:col-span-2 pt-2">
+                  <button
+                    type="submit"
+                    className="w-full py-3 bg-clubRed hover:bg-red-700 text-white font-semibold rounded-xl text-xs transition shadow"
+                  >
+                    Publicar Aula de Adultos
+                  </button>
+                </div>
+              </form>
+            </div>
+
+            {/* Listagem de Aulas de Adultos Agendadas */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+              <h2 className="font-bold text-gray-800 text-sm">📅 Aulas de Adultos Agendadas</h2>
+              {(!adultClasses || adultClasses.length === 0) ? (
+                <div className="text-center py-6 text-xs text-gray-400">
+                  Não existem aulas de adultos criadas de momento.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {adultClasses.map((cls) => {
+                    const enrolled = cls.enrolledParents || [];
+                    const isFull = enrolled.length >= cls.maxSeats;
+
+                    return (
+                      <div key={cls.id} className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+                        <div className="flex justify-between items-start">
+                          <div>
+                            <span className="text-xs font-bold text-gray-900 block">📅 Data: {cls.date} | ⏰ Horário: {cls.time}</span>
+                            <span className="text-[11px] text-gray-500 block mt-0.5">Vagas: {enrolled.length} / {cls.maxSeats} {isFull ? '(Esgotado ✕)' : ''}</span>
+                            <span className="text-[10px] text-gray-400 block">Antecedência de votação/abertura: {cls.daysBefore || cls.days_before || 1} dia(s)</span>
+                          </div>
+                          {isAdmin && (
+                            <button
+                              onClick={() => handleDeleteAdultClass(cls.id)}
+                              className="text-xs bg-rose-50 hover:bg-rose-100 text-rose-600 px-3 py-1.5 rounded-lg font-bold transition"
+                            >
+                              Eliminar Aula
+                            </button>
+                          )}
+                        </div>
+
+                        <div className="pt-2 border-t border-gray-200 text-xs space-y-1">
+                          <span className="font-bold text-gray-700 block">Inscritos ({enrolled.length}):</span>
+                          {enrolled.length === 0 ? (
+                            <span className="text-gray-400 italic block">Nenhum adulto inscrito ainda. (Alunos com modalidade mensal inscrevem-se automaticamente)</span>
+                          ) : (
+                            <ul className="list-disc pl-4 space-y-0.5">
+                              {enrolled.map((p, idx) => (
+                                <li key={idx} className="text-gray-800">
+                                  {p.name} <span className="text-gray-400">({p.email})</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Listagem de Inscrições Stormfit (Cadastros gerais) */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <div className="flex justify-between items-center border-b border-gray-100 pb-3">
                 <div>
-                  <h2 className="font-bold text-gray-800 text-sm">🏋️ Lista de Inscrições / Aulas Stormfit (Adultos)</h2>
+                  <h2 className="font-bold text-gray-800 text-sm">🏋️ Fichas de Inscrição Stormfit (Adultos)</h2>
                   <p className="text-xs text-gray-500">Inscrições submetidas na turma de adultos</p>
                 </div>
                 <span className="text-xs bg-purple-50 text-purple-700 font-bold px-2.5 py-1 rounded-lg">
@@ -1785,12 +1882,6 @@ export default function Dashboard({ onLogout }) {
                           {adult.payment_mode || 'Mensal'}
                         </span>
                       </div>
-                      <div className="text-[11px] text-gray-500 flex flex-wrap gap-x-4 pt-1 border-t border-amber-200/60">
-                        <span>📅 Nascimento: {adult.birth_date || 'N/D'}</span>
-                        <span>💳 NIF: {adult.nif || 'N/D'}</span>
-                        <span>📍 Localidade: {adult.city || 'N/D'}</span>
-                        <span className="font-mono text-gray-700">Código: {adult.access_code}</span>
-                      </div>
                       {isAdmin && (
                         <div className="pt-2 flex space-x-2">
                           <button
@@ -1812,7 +1903,6 @@ export default function Dashboard({ onLogout }) {
                 </div>
               )}
 
-              {/* Adultos Aceites com Ficha Completa, Foto, Chat e Remoção */}
               <div className="space-y-3 pt-2">
                 <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wider">✓ Adultos Aceites na Turma</h3>
                 {acceptedAdultsList.length === 0 ? (
@@ -1913,29 +2003,6 @@ export default function Dashboard({ onLogout }) {
                                 <p><strong>NIF:</strong> {adult.nif || 'N/D'}</p>
                               </div>
                             </div>
-
-                            <div className="space-y-1">
-                              <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                📞 Contactos & Morada
-                              </h4>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                                <p><strong>Email:</strong> {adultEmail || 'N/D'}</p>
-                                <p><strong>Telemóvel:</strong> {adult.phone || 'N/D'}</p>
-                                <p className="sm:col-span-2">
-                                  <strong>Morada:</strong> {adult.address || 'N/D'}, {adult.postal_code} {adult.city}
-                                </p>
-                              </div>
-                            </div>
-
-                            <div className="space-y-1">
-                              <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
-                                💳 Pagamento & Modalidade
-                              </h4>
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
-                                <p><strong>Modalidade:</strong> {adult.payment_mode || 'Mensal'}</p>
-                                <p><strong>Estado:</strong> Aceite</p>
-                              </div>
-                            </div>
                           </div>
                         )}
                       </div>
@@ -1950,7 +2017,6 @@ export default function Dashboard({ onLogout }) {
         {/* SECÇÃO: CHAT */}
         {activeTab === 'communication' && (
           <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col h-[500px] overflow-hidden">
-            
             <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
               <div>
                 <span className="text-[10px] font-bold text-gray-400 block uppercase">Conversar Com:</span>
@@ -2024,7 +2090,6 @@ export default function Dashboard({ onLogout }) {
                 Enviar
               </button>
             </form>
-
           </div>
         )}
 

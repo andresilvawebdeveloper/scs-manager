@@ -6,7 +6,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const { 
     updateAdultRegistration,
     adultClasses, 
-    enrollInAdultClass, 
+    bookAdultClass, 
     cancelAdultClassEnrollment,
     messages,
     sendMessage
@@ -38,7 +38,6 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const handleSave = async (e) => {
     e.preventDefault();
     
-    // Mapear os campos para os nomes corretos da tabela 'adult_registrations'
     const payload = {
       full_name: formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name,
       phone: formData.phone,
@@ -57,7 +56,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     setIsEditing(false);
   };
 
-  const handleEnroll = (classId) => {
+  const handleEnroll = async (classId) => {
     const participantInfo = {
       id: registration.id,
       name: formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name,
@@ -65,15 +64,21 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
       timestamp: new Date().toISOString()
     };
 
-    if (enrollInAdultClass) {
-      enrollInAdultClass(classId, participantInfo);
+    if (bookAdultClass) {
+      const res = await bookAdultClass(classId, participantInfo);
+      if (res && res.message) {
+        setSuccessMsg(res.message);
+      }
     }
   };
 
-  const handleCancelEnrollment = (classId) => {
+  const handleCancelEnrollment = async (classId) => {
     if (window.confirm('Tem certeza que pretende cancelar a sua inscrição nesta aula?')) {
       if (cancelAdultClassEnrollment) {
-        cancelAdultClassEnrollment(classId, registration.id);
+        const res = await cancelAdultClassEnrollment(classId, registration.id);
+        if (res && res.message) {
+          setSuccessMsg(res.message);
+        }
       }
     }
   };
@@ -103,7 +108,6 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     setIsSendingChat(false);
   };
 
-  // Normalização segura para exibição
   const displayName = formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name || 'Aluno';
   const displayBirth = formData.birth_date || formData.birthDate || 'Não preenchido';
   const displayCC = formData.cc || formData.athleteCC || formData.athlete_cc || 'Não preenchido';
@@ -114,10 +118,10 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
       
-      {/* Header */}
+      {/* Header com o logotipo solicitado */}
       <header className="bg-amber-600 text-white p-4 shadow-md flex justify-between items-center">
         <div className="flex items-center space-x-2">
-          <div className="w-7 h-7 bg-white rounded-lg flex items-center justify-center p-0.5">
+          <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center p-1 shadow">
             <img src="/logo.png" alt="Logo" className="w-full h-full object-contain" />
           </div>
           <h1 className="font-bold text-sm">Área de Aulas de Adultos</h1>
@@ -160,7 +164,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
       <main className="max-w-2xl mx-auto px-4 mt-6 space-y-6">
         
         {successMsg && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-xs font-medium flex justify-between items-center">
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-2xl text-xs font-medium flex justify-between items-center shadow-xs">
             <span>{successMsg}</span>
             <button onClick={() => setSuccessMsg('')} className="font-bold text-amber-900 ml-2">✕</button>
           </div>

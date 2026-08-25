@@ -160,7 +160,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // CARREGAR E NORMALIZAR ADULTOS (Garante compatibilidade total com ambos os formatos de colunas)
   const fetchAdultRegistrations = async () => {
     try {
       const { data, error } = await supabase
@@ -172,7 +171,6 @@ export function AppProvider({ children }) {
       if (data) {
         const normalizedAdults = data.map((item) => ({
           ...item,
-          // Mapeamento duplo para garantir que o dashboard lê sempre independentemente da chave procurada
           fullName: item.full_name || item.fullName || '',
           full_name: item.full_name || item.fullName || '',
           birthDate: item.birth_date || item.birthDate || '',
@@ -225,12 +223,83 @@ export function AppProvider({ children }) {
           date: c.date,
           time: c.time,
           maxSeats: c.max_seats || c.maxSeats || 15,
+          daysBefore: c.days_before || c.daysBefore || 1,
           enrolledParents: c.enrolled_parents || c.enrolledParents || []
         }));
         setAdultClasses(formatted);
       }
     } catch (err) {
       console.error('Erro ao processar aulas de adultos:', err.message);
+    }
+  };
+
+  const addAdultClass = async (classData) => {
+    try {
+      const insertPayload = {
+        date: classData.date,
+        time: classData.time,
+        max_seats: classData.max_seats || 15,
+        days_before: classData.days_before || 1,
+        enrolled_parents: classData.enrolled_parents || []
+      };
+      const { error } = await supabase.from('adult_classes').insert([insertPayload]);
+      if (error) throw error;
+      await fetchAdultClasses();
+      return { success: true };
+    } catch (err) {
+      console.error('Erro ao adicionar aula de adultos:', err);
+      return { success: false, message: err.message };
+    }
+  };
+
+  const deleteAdultClass = async (classId) => {
+    try {
+      const { error } = await supabase.from('adult_classes').delete().eq('id', classId);
+      if (error) throw error;
+      await fetchAdultClasses();
+    } catch (err) {
+      console.error('Erro ao eliminar aula de adultos:', err);
+    }
+  };
+
+  const bookAdultClass = async (classId, adultUserData) => {
+    try {
+      const { data: currentClass, error: fetchError } = await supabase
+        .from('adult_classes')
+        .select('enrolled_parents, max_seats')
+        .eq('id', classId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const currentEnrolled = Array.isArray(currentClass.enrolled_parents) 
+        ? currentClass.enrolled_parents 
+        : [];
+
+      const alreadyEnrolled = currentEnrolled.some(p => p.email === adultUserData.email);
+      if (alreadyEnrolled) {
+        return { success: false, message: "Já se encontra inscrito nesta aula." };
+      }
+
+      if (currentEnrolled.length >= currentClass.max_seats) {
+        return { success: false, message: "Esta aula já atingiu o limite máximo de vagas." };
+      }
+
+      const updatedEnrolled = [...currentEnrolled, adultUserData];
+
+      const { error: updateError } = await supabase
+        .from('adult_classes')
+        .update({ enrolled_parents: updatedEnrolled })
+        .eq('id', classId);
+
+      if (updateError) throw updateError;
+
+      await fetchAdultClasses();
+      return { success: true, message: "Inscrição efetuada com sucesso!" };
+
+    } catch (err) {
+      console.error("Erro ao inscrever na aula de adultos:", err.message);
+      return { success: false, message: "Erro ao efetuar inscrição: " + err.message };
     }
   };
 
@@ -556,7 +625,11 @@ export function AppProvider({ children }) {
         toggleEventAttendance,
         sendMessage,
         fetchRegistrations,
-        fetchAdultRegistrations
+        fetchAdultRegistrations,
+        addAdultClass,
+        deleteAdultClass,
+        fetchAdultClasses,
+        bookAdultClass
       }}
     >
       {children}
