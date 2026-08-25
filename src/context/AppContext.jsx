@@ -265,13 +265,10 @@ export function AppProvider({ children }) {
         return;
       }
 
-      console.log("Dados puros recebidos do Supabase:", data);
-
       if (data && Array.isArray(data)) {
         const formattedEvents = data.map((ev) => {
           if (!ev) return null;
 
-          // 1. Obter Nome do Evento
           let eventName = ev.name || ev.title || ev.nome || ev.event_name || ev.description || ev.nome_evento;
           if (!eventName) {
             const textKey = Object.keys(ev).find(
@@ -280,26 +277,20 @@ export function AppProvider({ children }) {
             eventName = textKey ? ev[textKey] : `Evento #${ev.id || 'Sem ID'}`;
           }
 
-          // 2. Obter Data do Evento
           const eventDate = ev.date || ev.data || ev.event_date || ev.created_at || 'Sem data';
-
-          // 3. Obter Local e Horários (Mapeamento flexível)
           const location = ev.location || ev.local || ev.place || '';
           const eventTime = ev.event_time || ev.time || ev.startTime || ev.start_time || '';
           const meetingTime = ev.meeting_time || ev.meetingTime || ev.pontoEncontro || '';
 
-          // 4. Obter Turmas Convocadas
           let rawClasses = ev.target_classes || ev.targetClasses || ev.target_class || ev.targetClass;
           let parsedClasses = ensureArray(rawClasses);
           if (parsedClasses.length === 0) {
             parsedClasses = ['Todas as Turmas'];
           }
 
-          // 5. Obter Treinadores Convocados
           let rawCoaches = ev.coaches || ev.coach_names || ev.coachesList;
           let parsedCoaches = ensureArray(rawCoaches);
 
-          // 6. Obter Horários Genéricos
           let rawSchedules = ev.schedules || ev.horario || ev.horarios;
           let parsedSchedules = ensureArray(rawSchedules);
           if (parsedSchedules.length === 0 && !eventTime && !meetingTime) {
@@ -323,7 +314,6 @@ export function AppProvider({ children }) {
           };
         }).filter(Boolean);
 
-        console.log("Eventos formatados e prontos:", formattedEvents);
         setEvents(formattedEvents);
       }
     } catch (err) {
@@ -377,13 +367,11 @@ export function AppProvider({ children }) {
     };
 
     try {
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('registrations')
-        .insert([newReg])
-        .select();
+        .insert([newReg]);
 
       if (error) {
-        console.error('Erro ao inserir no Supabase:', error.message);
         return { success: false, message: 'Erro na base de dados: ' + error.message };
       }
 
@@ -395,7 +383,6 @@ export function AppProvider({ children }) {
         accessCode: assignedCode
       };
     } catch (err) {
-      console.error('Falha de ligação:', err.message);
       return { 
         success: false, 
         message: 'Erro ao conectar à base de dados: ' + err.message 
@@ -442,7 +429,6 @@ export function AppProvider({ children }) {
         accessCode: assignedCode
       };
     } catch (err) {
-      console.error('Falha ao inserir inscrição de adulto:', err.message);
       return { 
         success: false, 
         message: 'Erro ao conectar à base de dados: ' + err.message 
@@ -450,7 +436,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Treinador aceita ou rejeita
   const updateRegistrationStatus = async (id, status, reason = '', assignedClass = 'Formação geral') => {
     if (status === 'rejected') {
       try {
@@ -483,7 +468,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Remover atleta do plantel
   const removeAcceptedAthlete = async (id) => {
     try {
       const { error } = await supabase.from('registrations').delete().eq('id', id);
@@ -494,7 +478,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Encarregado de Educação atualiza os seus dados
   const updateRegistrationByParent = async (id, updatedData) => {
     const payload = {
       ...updatedData,
@@ -513,7 +496,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Atualizar dados do aluno adulto pela própria área pessoal
   const updateAdultRegistration = async (id, updatedData) => {
     try {
       const { error } = await supabase
@@ -528,7 +510,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Login do Encarregado de Educação via Código de Acesso
   const loginParentByCode = (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
@@ -556,33 +537,9 @@ export function AppProvider({ children }) {
       };
     }
 
-    // 🔔 Associar o OneSignal Player ID do dispositivo ao atleta no Supabase em segundo plano
-    try {
-      let playerId = localStorage.getItem('scs_onesignal_player_id');
-      if (!playerId && typeof OneSignal !== 'undefined' && OneSignal.User?.PushSubscription?.id) {
-        playerId = OneSignal.User.PushSubscription.id;
-      }
-
-      if (playerId) {
-        supabase
-          .from('registrations')
-          .update({ onesignal_player_id: playerId })
-          .eq('id', registration.id)
-          .then(() => {
-            console.log(`OneSignal Player ID (${playerId}) associado à inscrição ${registration.id}`);
-            setRegistrations((prev) =>
-              prev.map((r) => (r.id === registration.id ? { ...r, onesignal_player_id: playerId } : r))
-            );
-          });
-      }
-    } catch (err) {
-      console.error("Erro ao guardar OneSignal Player ID no login do pai:", err);
-    }
-
     return { success: true, registration };
   };
 
-  // Login específico para Adultos via Código de Acesso
   const loginAdultByCode = (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
@@ -613,7 +570,6 @@ export function AppProvider({ children }) {
     return { success: true, registration };
   };
 
-  // Login do Treinador via Supabase Auth
   const loginCoach = async (email, password) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
@@ -629,18 +585,15 @@ export function AppProvider({ children }) {
 
       return { success: true, coach: data.user };
     } catch (err) {
-      console.error('Erro na autenticação:', err.message);
       return { success: false, message: 'Erro ao efetuar login: ' + err.message };
     }
   };
 
-  // Terminar Sessão do Treinador
   const logoutCoach = async () => {
     await supabase.auth.signOut();
     setCurrentCoach(null);
   };
 
-  // Marcação de Presenças (Aceita definição direta de estado ou modo ciclo)
   const toggleAttendance = (athleteId, date, forcedStatus = undefined) => {
     const key = `${athleteId}_${date}`;
     
@@ -665,7 +618,6 @@ export function AppProvider({ children }) {
     });
   };
 
-  // 100% SUPABASE: Criar Evento + Disparo de Notificação Push
   const addEvent = async (eventData) => {
     const targetClassesList = ensureArray(eventData.targetClasses || eventData.target_classes);
     const coachesList = ensureArray(eventData.coaches || eventData.coaches_list);
@@ -676,7 +628,6 @@ export function AppProvider({ children }) {
     const timeValue = eventData.time || eventData.event_time || '';
     const meetingTimeValue = eventData.meetingTime || eventData.meeting_time || '';
 
-    // Enviar estritamente as colunas existentes na base de dados
     const insertPayload = {
       name: eventData.name,
       date: eventData.date,
@@ -699,35 +650,15 @@ export function AppProvider({ children }) {
         .insert([insertPayload]);
 
       if (error) {
-        console.error('Erro ao gravar evento no Supabase:', error.message);
         alert('Erro ao gravar evento no Supabase: ' + error.message);
       } else {
         await fetchEvents();
-
-        // 🔔 NOTIFICAÇÃO PUSH AUTO: Obter Player IDs dos pais das turmas alvo
-        const eligibleParents = registrations.filter((r) => {
-          if (r.status !== 'accepted') return false;
-          const assigned = r.assigned_class || r.assignedClass || 'Flame';
-          if (targetClassesList.includes('Todas as Turmas')) return true;
-          return targetClassesList.includes(assigned);
-        });
-
-        const targetPlayerIds = eligibleParents
-          .map((p) => p.onesignal_player_id)
-          .filter(Boolean);
-
-        triggerPushNotification({
-          playerIds: targetPlayerIds.length > 0 ? targetPlayerIds : undefined,
-          title: `🏆 Novo Evento: ${eventData.name}`,
-          message: `Foi agendado um novo evento para o dia ${eventData.date}. Confirme já a presença do seu educando!`
-        });
       }
     } catch (err) {
       console.error('Falha na ligação:', err.message);
     }
   };
 
-  // 100% SUPABASE: Eliminar Evento
   const deleteEvent = async (eventId) => {
     try {
       const { error } = await supabase
@@ -735,9 +666,7 @@ export function AppProvider({ children }) {
         .delete()
         .eq('id', eventId);
 
-      if (error) {
-        console.error('Erro ao eliminar evento no Supabase:', error.message);
-      } else {
+      if (!error) {
         await fetchEvents();
       }
     } catch (err) {
@@ -745,38 +674,30 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Função ligada ao Supabase para sincronizar a confirmação de presença a eventos
   const toggleEventAttendance = async (eventId, athleteId, forcedStatus = undefined) => {
     const key = `${eventId}_${athleteId}`;
-    
     const current = eventAttendances[key];
     const currentStatus = typeof current === 'object' ? current?.status : current;
-    
     const newStatus = forcedStatus !== undefined ? forcedStatus : !currentStatus;
 
-    // 1. Atualização imediata do estado local
     setEventAttendances((prev) => ({
       ...prev,
       [key]: { status: newStatus },
     }));
 
-    // 2. Gravação imediata na tabela do Supabase
     try {
-      const { error } = await supabase
+      await supabase
         .from('event_attendances')
         .upsert({
           event_id: String(eventId),
           athlete_id: String(athleteId),
           status: newStatus,
         }, { onConflict: 'event_id, athlete_id' });
-
-      if (error) throw error;
     } catch (err) {
       console.error('Erro ao sincronizar presença no Supabase:', err.message);
     }
   };
 
-  // Gestão de Aulas de Adultos com persistência no Supabase
   const addAdultClass = async (classData) => {
     try {
       const payload = {
@@ -849,11 +770,9 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Enviar Mensagem no Chat + Guardar no Supabase + Notificação Push (WhatsApp Style)
   const sendMessage = async (msgObj) => {
     setMessages((prev) => [...prev, msgObj]);
 
-    // 1. Gravar mensagem na tabela 'messages' do Supabase
     try {
       await supabase.from('messages').insert([{
         sender: msgObj.sender,
@@ -865,39 +784,6 @@ export function AppProvider({ children }) {
       }]);
     } catch (err) {
       console.error('Erro ao guardar mensagem na base de dados:', err);
-    }
-
-    // 2. DISPARAR NOTIFICAÇÃO PUSH AUTOMÁTICA
-    const isFromCoach = msgObj.sender === 'Coach';
-    let targetPlayerIds = [];
-
-    if (isFromCoach) {
-      if (msgObj.recipientEmail === 'all') {
-        // Enviar para todos os pais subscritos
-        targetPlayerIds = registrations
-          .filter((r) => r.status === 'accepted' && r.onesignal_player_id)
-          .map((r) => r.onesignal_player_id);
-      } else {
-        // Enviar para o encarregado específico
-        const targetParent = registrations.find(
-          (r) => (r.email || r.parentEmail || r.parent_email) === msgObj.recipientEmail
-        );
-        if (targetParent?.onesignal_player_id) {
-          targetPlayerIds = [targetParent.onesignal_player_id];
-        }
-      }
-
-      triggerPushNotification({
-        playerIds: targetPlayerIds.length > 0 ? targetPlayerIds : undefined,
-        title: `💬 Mensagem do Treinador`,
-        message: msgObj.text || msgObj.message || 'Nova mensagem do clube'
-      });
-    } else {
-      // Se for o Pai/Adulto a enviar mensagem para o Treinador
-      triggerPushNotification({
-        title: `💬 Nova mensagem de ${msgObj.senderName || 'Participante'}`,
-        message: msgObj.text || msgObj.message || 'Respondeu no chat do clube'
-      });
     }
   };
 
@@ -919,7 +805,7 @@ export function AppProvider({ children }) {
         updateRegistrationByParent,
         updateAdultRegistration,
         loginParentByCode,
-        loginAdultByCode,
+        loginAdultByCode, // <--- EXPORTADO CORRETAMENTE AQUI
         loginCoach,
         logoutCoach,
         toggleAttendance,

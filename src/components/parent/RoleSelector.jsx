@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 
 export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginWithCode, onAdultRegistration, onAdultLoginWithCode }) {
-  const { loginParentByCode } = useApp();
+  const { loginParentByCode, loginAdultByCode } = useApp();
   const [viewMode, setViewMode] = useState('main'); // 'main', 'parent_options', 'adult_options'
   const [code, setCode] = useState('');
   const [adultCode, setAdultCode] = useState('');
@@ -24,8 +24,9 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
     e.preventDefault();
     if (!adultCode.trim()) return;
 
-    // Utiliza a mesma lógica de login por código, ou uma específica para adultos se preferires
-    const result = loginParentByCode(adultCode.trim());
+    // Utiliza a função específica para validar códigos da turma Stormfit/Adultos
+    const result = loginAdultByCode ? loginAdultByCode(adultCode.trim()) : { success: false, message: "Função de login de adultos não configurada." };
+    
     if (result.success) {
       if (onAdultLoginWithCode) {
         onAdultLoginWithCode(result.registration);
@@ -42,7 +43,7 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
         {/* Logótipo do Clube */}
         <div className="mx-auto w-24 h-24 mb-6 flex items-center justify-center p-2">
           <img 
-            src="/logo.png" 
+            src="/logo_clube.png" 
             alt="Símbolo do Clube de Ginástica" 
             className="w-full h-full object-contain drop-shadow-md"
           />
