@@ -13,27 +13,12 @@ const ensureArray = (val) => {
       const parsed = JSON.parse(val);
       if (Array.isArray(parsed)) return parsed;
     } catch (e) {}
-    // Se for uma string separada por vírgulas ou texto simples
     if (val.includes(',')) {
       return val.split(',').map(s => s.trim()).filter(Boolean);
     }
     return [val.trim()];
   }
   return [];
-};
-
-// Função auxiliar para invocar a Edge Function de envio de Push Notifications
-const triggerPushNotification = async ({ playerIds, title, message, url }) => {
-  try {
-    const { error } = await supabase.functions.invoke('send-push-notification', {
-      body: { playerIds, title, message, url }
-    });
-    if (error) {
-      console.error('Erro ao invocar Edge Function de Notificação Push:', error.message);
-    }
-  } catch (err) {
-    console.error('Falha de ligação ao enviar notificação Push:', err);
-  }
 };
 
 export function AppProvider({ children }) {
@@ -68,21 +53,15 @@ export function AppProvider({ children }) {
         await OneSignal.init({
           appId: appId,
           allowLocalhostAsSecureOrigin: true,
-          notifyButton: {
-            enable: false,
-          },
+          notifyButton: { enable: false },
         });
 
-        // Pedir permissão ao utilizador
         await OneSignal.Notifications.requestPermission();
 
-        // Escutar alterações na subscrição para guardar o Player ID do dispositivo
         OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
           const playerId = event.current.id;
           if (playerId) {
-            console.log("OneSignal Player ID do Dispositivo:", playerId);
             localStorage.setItem('scs_onesignal_player_id', playerId);
-            
             const { data: { session } } = await supabase.auth.getSession();
             if (session?.user?.email) {
               await supabase
@@ -108,7 +87,6 @@ export function AppProvider({ children }) {
     fetchEventAttendances();
     fetchAdultClasses();
 
-    // 1. Verificar sessão ativa no Supabase Auth
     const checkActiveSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
@@ -118,7 +96,6 @@ export function AppProvider({ children }) {
 
     checkActiveSession();
 
-    // 2. Escutar alterações do estado de autenticação
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         await fetchCoachProfile(session.user);
@@ -132,7 +109,6 @@ export function AppProvider({ children }) {
     };
   }, []);
 
-  // Procurar o perfil/role do treinador na tabela 'coaches'
   const fetchCoachProfile = async (authUser) => {
     try {
       const { data: coachProfile, error } = await supabase
@@ -170,7 +146,6 @@ export function AppProvider({ children }) {
     localStorage.setItem('scs_messages', JSON.stringify(messages));
   }, [messages]);
 
-  // Função para procurar todas as inscrições no Supabase
   const fetchRegistrations = async () => {
     try {
       const { data, error } = await supabase
@@ -178,19 +153,14 @@ export function AppProvider({ children }) {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Erro no Supabase:', error.message);
-        return;
-      }
-      if (data) {
-        setRegistrations(data);
-      }
+      if (error) throw error;
+      if (data) setRegistrations(data);
     } catch (err) {
       console.error('Erro ao carregar atletas:', err.message);
     }
   };
 
-  // Carregar inscrições de adultos da tabela dedicada 'adult_registrations'
+  // CARREGAR E NORMALIZAR ADULTOS (Garante compatibilidade total com ambos os formatos de colunas)
   const fetchAdultRegistrations = async () => {
     try {
       const { data, error } = await supabase
@@ -200,14 +170,29 @@ export function AppProvider({ children }) {
 
       if (error) throw error;
       if (data) {
-        setAdultRegistrations(data);
+        const normalizedAdults = data.map((item) => ({
+          ...item,
+          // Mapeamento duplo para garantir que o dashboard lê sempre independentemente da chave procurada
+          fullName: item.full_name || item.fullName || '',
+          full_name: item.full_name || item.fullName || '',
+          birthDate: item.birth_date || item.birthDate || '',
+          birth_date: item.birth_date || item.birthDate || '',
+          athleteCC: item.cc || item.athleteCC || item.athlete_cc || '',
+          cc: item.cc || item.athleteCC || item.athlete_cc || '',
+          postalCode: item.postal_code || item.postalCode || '',
+          postal_code: item.postal_code || item.postalCode || '',
+          paymentMode: item.payment_mode || item.paymentMode || 'Mensal',
+          payment_mode: item.payment_mode || item.paymentMode || 'Mensal',
+          accessCode: item.access_code || item.accessCode || '',
+          access_code: item.access_code || item.accessCode || '',
+        }));
+        setAdultRegistrations(normalizedAdults);
       }
     } catch (err) {
       console.error('Erro ao carregar inscrições de adultos:', err.message);
     }
   };
 
-  // Carregar presenças a eventos guardadas na base de dados
   const fetchEventAttendances = async () => {
     try {
       const { data, error } = await supabase.from('event_attendances').select('*');
@@ -226,7 +211,6 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Carregar Aulas de Adultos do Supabase
   const fetchAdultClasses = async () => {
     try {
       const { data, error } = await supabase
@@ -234,10 +218,7 @@ export function AppProvider({ children }) {
         .select('*')
         .order('created_at', { ascending: false });
 
-      if (error) {
-        console.error('Erro ao carregar aulas de adultos:', error.message);
-        return;
-      }
+      if (error) throw error;
       if (data) {
         const formatted = data.map((c) => ({
           id: c.id,
@@ -253,58 +234,34 @@ export function AppProvider({ children }) {
     }
   };
 
-  // 100% SUPABASE: Leitura ultra-segura e imune a erros de formato
   const fetchEvents = async () => {
     try {
-      const { data, error } = await supabase
-        .from('events')
-        .select('*');
-
-      if (error) {
-        console.error('Erro ao procurar na tabela events:', error.message);
-        return;
-      }
+      const { data, error } = await supabase.from('events').select('*');
+      if (error) throw error;
 
       if (data && Array.isArray(data)) {
         const formattedEvents = data.map((ev) => {
           if (!ev) return null;
+          let eventName = ev.name || ev.title || ev.nome || ev.event_name;
+          const eventDate = ev.date || ev.data || ev.event_date || 'Sem data';
+          const location = ev.location || ev.local || '';
+          const eventTime = ev.event_time || ev.time || '';
+          const meetingTime = ev.meeting_time || ev.meetingTime || '';
 
-          let eventName = ev.name || ev.title || ev.nome || ev.event_name || ev.description || ev.nome_evento;
-          if (!eventName) {
-            const textKey = Object.keys(ev).find(
-              k => k !== 'id' && k !== 'created_at' && typeof ev[k] === 'string' && ev[k].trim() !== ''
-            );
-            eventName = textKey ? ev[textKey] : `Evento #${ev.id || 'Sem ID'}`;
-          }
+          let parsedClasses = ensureArray(ev.target_classes || ev.targetClasses || ev.target_class);
+          if (parsedClasses.length === 0) parsedClasses = ['Todas as Turmas'];
 
-          const eventDate = ev.date || ev.data || ev.event_date || ev.created_at || 'Sem data';
-          const location = ev.location || ev.local || ev.place || '';
-          const eventTime = ev.event_time || ev.time || ev.startTime || ev.start_time || '';
-          const meetingTime = ev.meeting_time || ev.meetingTime || ev.pontoEncontro || '';
-
-          let rawClasses = ev.target_classes || ev.targetClasses || ev.target_class || ev.targetClass;
-          let parsedClasses = ensureArray(rawClasses);
-          if (parsedClasses.length === 0) {
-            parsedClasses = ['Todas as Turmas'];
-          }
-
-          let rawCoaches = ev.coaches || ev.coach_names || ev.coachesList;
-          let parsedCoaches = ensureArray(rawCoaches);
-
-          let rawSchedules = ev.schedules || ev.horario || ev.horarios;
-          let parsedSchedules = ensureArray(rawSchedules);
-          if (parsedSchedules.length === 0 && !eventTime && !meetingTime) {
-            parsedSchedules = ['Horário a definir'];
-          }
+          let parsedCoaches = ensureArray(ev.coaches || ev.coach_names);
+          let parsedSchedules = ensureArray(ev.schedules);
 
           return {
             id: ev.id || Math.random().toString(),
             name: String(eventName),
             date: String(eventDate),
-            location: location,
+            location,
             time: eventTime,
             event_time: eventTime,
-            meetingTime: meetingTime,
+            meetingTime,
             meeting_time: meetingTime,
             created_at: ev.created_at,
             targetClasses: parsedClasses,
@@ -321,32 +278,23 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Gerador de Código de Acesso Normal (6 caracteres) para Encarregados de Educação
   const generateSCSCode = () => {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let randomPart = '';
-    for (let i = 0; i < 6; i++) {
-      randomPart += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    return `SCS-${randomPart}`;
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let res = '';
+    for (let i = 0; i < 6; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+    return `SCS-${res}`;
   };
 
-  // Gerador de Código de Acesso Específico para Adultos (7 caracteres para garantir unicidade)
   const generateAdultSCSCode = () => {
-    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-    let randomPart = '';
-    for (let i = 0; i < 7; i++) {
-      randomPart += characters.charAt(Math.floor(Math.random() * characters.length));
-    }
-    return `SCS-${randomPart}`;
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let res = '';
+    for (let i = 0; i < 7; i++) res += chars.charAt(Math.floor(Math.random() * chars.length));
+    return `SCS-${res}`;
   };
 
-  // Submeter nova inscrição no Supabase
   const addRegistration = async (formData) => {
     const assignedCode = generateSCSCode();
-    const generatedId = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : `reg_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const generatedId = crypto.randomUUID ? crypto.randomUUID() : `reg_${Date.now()}`;
 
     const newReg = {
       id: generatedId,
@@ -367,45 +315,21 @@ export function AppProvider({ children }) {
       city: formData.city || '',
       member_number: formData.member_number || formData.memberNumber || '',
       member_type: formData.member_type || formData.memberType || 'Atleta',
-      tracksuitSize: formData.tracksuitSize || 'Não pretendo / Não preciso',
-      officialTshirtSize: formData.officialTshirtSize || 'Não pretendo / Não preciso',
-      redTshirtSize: formData.redTshirtSize || 'Não pretendo / Não preciso',
-      yellowTshirtSize: formData.yellowTshirtSize || 'Não pretendo / Não preciso',
-      adultClassesInterest: formData.adultClassesInterest || 'Não',
-      adultClassesParticipants: formData.adultClassesParticipants || 'Pai',
-      adultClassesPaymentMode: formData.adultClassesPaymentMode || 'Avulso',
     };
 
     try {
-      const { error } = await supabase
-        .from('registrations')
-        .insert([newReg]);
-
-      if (error) {
-        return { success: false, message: 'Erro na base de dados: ' + error.message };
-      }
-
+      const { error } = await supabase.from('registrations').insert([newReg]);
+      if (error) throw error;
       await fetchRegistrations();
-
-      return { 
-        success: true, 
-        message: 'Inscrição submetida com sucesso! Aguarde a validação do treinador.',
-        accessCode: assignedCode
-      };
+      return { success: true, message: 'Inscrição submetida com sucesso!', accessCode: assignedCode };
     } catch (err) {
-      return { 
-        success: false, 
-        message: 'Erro ao conectar à base de dados: ' + err.message 
-      };
+      return { success: false, message: 'Erro: ' + err.message };
     }
   };
 
-  // Submeter nova inscrição de adulto na tabela dedicada 'adult_registrations' (Usa código de 7 caracteres)
   const addAdultRegistration = async (formData) => {
     const assignedCode = generateAdultSCSCode();
-    const generatedId = typeof crypto !== 'undefined' && crypto.randomUUID 
-      ? crypto.randomUUID() 
-      : `adult_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
+    const generatedId = crypto.randomUUID ? crypto.randomUUID() : `adult_${Date.now()}`;
 
     const newAdultReg = {
       id: generatedId,
@@ -425,179 +349,98 @@ export function AppProvider({ children }) {
     };
 
     try {
-      const { error } = await supabase
-        .from('adult_registrations')
-        .insert([newAdultReg]);
-
+      const { error } = await supabase.from('adult_registrations').insert([newAdultReg]);
       if (error) throw error;
-
       await fetchAdultRegistrations();
-
-      return { 
-        success: true, 
-        message: 'Inscrição de adulto submetida com sucesso! Aguarde a validação do treinador.',
-        accessCode: assignedCode
-      };
+      return { success: true, message: 'Inscrição de adulto submetida com sucesso!', accessCode: assignedCode };
     } catch (err) {
-      return { 
-        success: false, 
-        message: 'Erro ao conectar à base de dados: ' + err.message 
-      };
+      return { success: false, message: 'Erro: ' + err.message };
     }
   };
 
   const updateRegistrationStatus = async (id, status, reason = '', assignedClass = 'Formação geral') => {
     if (status === 'rejected') {
       try {
-        const { error } = await supabase.from('registrations').delete().eq('id', id);
-        if (error) throw error;
+        await supabase.from('registrations').delete().eq('id', id);
         setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
       } catch (err) {
-        console.error('Erro ao rejeitar no Supabase:', err.message);
+        console.error('Erro ao rejeitar:', err);
       }
     } else {
       const athlete = registrations.find((r) => r.id === id);
-      const finalCode = athlete?.access_code || athlete?.accessCode || generateSCSCode();
-
-      const updates = {
-        status: 'accepted',
-        assigned_class: assignedClass,
-        access_code: finalCode,
-      };
+      const finalCode = athlete?.access_code || generateSCSCode();
+      const updates = { status: 'accepted', assigned_class: assignedClass, access_code: finalCode };
 
       try {
-        const { error } = await supabase.from('registrations').update(updates).eq('id', id);
-        if (error) throw error;
-
-        setRegistrations((prev) =>
-          prev.map((reg) => (reg.id === id ? { ...reg, ...updates } : reg))
-        );
+        await supabase.from('registrations').update(updates).eq('id', id);
+        setRegistrations((prev) => prev.map((reg) => (reg.id === id ? { ...reg, ...updates } : reg)));
       } catch (err) {
-        console.error('Erro ao aceitar atleta no Supabase:', err.message);
+        console.error('Erro ao aceitar:', err);
       }
     }
   };
 
   const removeAcceptedAthlete = async (id) => {
     try {
-      const { error } = await supabase.from('registrations').delete().eq('id', id);
-      if (error) throw error;
+      await supabase.from('registrations').delete().eq('id', id);
       setRegistrations((prev) => prev.filter((reg) => reg.id !== id));
     } catch (err) {
-      console.error('Erro ao remover atleta:', err.message);
+      console.error('Erro ao remover atleta:', err);
     }
   };
 
   const updateRegistrationByParent = async (id, updatedData) => {
-    const payload = {
-      ...updatedData,
-      athlete_nif: updatedData.athlete_nif || updatedData.athleteNIF || '',
-    };
-
     try {
-      const { error } = await supabase.from('registrations').update(payload).eq('id', id);
-      if (error) throw error;
-
-      setRegistrations((prev) =>
-        prev.map((reg) => (reg.id === id ? { ...reg, ...payload } : reg))
-      );
+      await supabase.from('registrations').update(updatedData).eq('id', id);
+      setRegistrations((prev) => prev.map((reg) => (reg.id === id ? { ...reg, ...updatedData } : reg)));
     } catch (err) {
-      console.error('Erro ao atualizar dados pelo encarregado:', err.message);
+      console.error('Erro ao atualizar:', err);
     }
   };
 
   const updateAdultRegistration = async (id, updatedData) => {
     try {
-      const { error } = await supabase
-        .from('adult_registrations')
-        .update(updatedData)
-        .eq('id', id);
-
-      if (error) throw error;
+      await supabase.from('adult_registrations').update(updatedData).eq('id', id);
       await fetchAdultRegistrations();
     } catch (err) {
-      console.error('Erro ao atualizar dados do adulto:', err.message);
+      console.error('Erro ao atualizar adulto:', err);
     }
   };
 
-  // LOGIN DE ENCARREGADO (Procura exclusivamente na tabela 'registrations')
   const loginParentByCode = (code) => {
-    if (!code) {
-      return { success: false, message: 'Por favor, insira o código de acesso.' };
-    }
-
+    if (!code) return { success: false, message: 'Insira o código.' };
     const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-
     const registration = registrations.find((reg) => {
-      const dbCodeRaw = reg.access_code || reg.accessCode || '';
-      const cleanDbCode = dbCodeRaw.toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      return cleanDbCode === cleanInput && cleanDbCode.length > 0;
+      const dbCode = (reg.access_code || reg.accessCode || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return dbCode === cleanInput;
     });
 
-    if (!registration) {
-      return { 
-        success: false, 
-        message: 'Código de acesso não encontrado. Confirme se escreveu exatamente como aparece no painel do treinador.' 
-      };
-    }
-
-    if (registration.status !== 'accepted') {
-      return { 
-        success: false, 
-        message: 'A sua inscrição ainda está pendente de validação pelo treinador.' 
-      };
-    }
-
+    if (!registration) return { success: false, message: 'Código de acesso não encontrado.' };
+    if (registration.status !== 'accepted') return { success: false, message: 'Inscrição pendente de validação.' };
     return { success: true, registration };
   };
 
-  // LOGIN DE ADULTO (Procura exclusivamente na tabela 'adult_registrations')
   const loginAdultByCode = (code) => {
-    if (!code) {
-      return { success: false, message: 'Por favor, insira o código de acesso.' };
-    }
-
+    if (!code) return { success: false, message: 'Insira o código.' };
     const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-
     const registration = adultRegistrations.find((reg) => {
-      const dbCodeRaw = reg.access_code || reg.accessCode || reg.code || '';
-      const cleanDbCode = dbCodeRaw.toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      return cleanDbCode === cleanInput && cleanDbCode.length > 0;
+      const dbCode = (reg.access_code || reg.accessCode || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+      return dbCode === cleanInput;
     });
 
-    if (!registration) {
-      return { 
-        success: false, 
-        message: 'Código de acesso de adulto não encontrado.' 
-      };
-    }
-
-    if (registration.status && registration.status !== 'accepted') {
-      return { 
-        success: false, 
-        message: 'A sua inscrição ainda está pendente de validação pelo treinador.' 
-      };
-    }
-
+    if (!registration) return { success: false, message: 'Código de acesso não encontrado.' };
+    if (registration.status && registration.status !== 'accepted') return { success: false, message: 'Inscrição pendente de validação.' };
     return { success: true, registration };
   };
 
   const loginCoach = async (email, password) => {
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
-
-      if (error) {
-        return { success: false, message: 'Email ou password incorretos.' };
-      }
-
+      const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) return { success: false, message: 'Email ou password incorretos.' };
       await fetchCoachProfile(data.user);
-
       return { success: true, coach: data.user };
     } catch (err) {
-      return { success: false, message: 'Erro ao efetuar login: ' + err.message };
+      return { success: false, message: 'Erro no login: ' + err.message };
     }
   };
 
@@ -608,13 +451,10 @@ export function AppProvider({ children }) {
 
   const toggleAttendance = (athleteId, date, forcedStatus = undefined) => {
     const key = `${athleteId}_${date}`;
-    
     setAttendances((prev) => {
       let nextState;
-
-      if (forcedStatus !== undefined) {
-        nextState = forcedStatus;
-      } else {
+      if (forcedStatus !== undefined) nextState = forcedStatus;
+      else {
         const current = prev[key];
         if (current === 'presente') nextState = 'justificado';
         else if (current === 'justificado') nextState = 'injustificado';
@@ -622,67 +462,35 @@ export function AppProvider({ children }) {
         else if (current === 'lesao') nextState = null;
         else nextState = 'presente';
       }
-
-      return {
-        ...prev,
-        [key]: nextState,
-      };
+      return { ...prev, [key]: nextState };
     });
   };
 
   const addEvent = async (eventData) => {
-    const targetClassesList = ensureArray(eventData.targetClasses || eventData.target_classes);
-    const coachesList = ensureArray(eventData.coaches || eventData.coaches_list);
-    const schedulesList = ensureArray(eventData.schedules);
-    const fallbackTargetClass = targetClassesList.join(', ') || 'Formação geral';
-
-    const locationValue = eventData.location || '';
-    const timeValue = eventData.time || eventData.event_time || '';
-    const meetingTimeValue = eventData.meetingTime || eventData.meeting_time || '';
-
-    const insertPayload = {
-      name: eventData.name,
-      date: eventData.date,
-      location: locationValue,
-      event_time: timeValue,
-      meeting_time: meetingTimeValue,
-      target_class: fallbackTargetClass,
-      target_classes: targetClassesList,
-      coaches: coachesList,
-      schedules: schedulesList
-    };
-
-    if (eventData.id) {
-      insertPayload.id = String(eventData.id);
-    }
-
     try {
-      const { error } = await supabase
-        .from('events')
-        .insert([insertPayload]);
-
-      if (error) {
-        alert('Erro ao gravar evento no Supabase: ' + error.message);
-      } else {
-        await fetchEvents();
-      }
+      const insertPayload = {
+        name: eventData.name,
+        date: eventData.date,
+        location: eventData.location || '',
+        event_time: eventData.time || '',
+        meeting_time: eventData.meetingTime || '',
+        target_class: eventData.targetClasses?.join(', ') || 'Formação geral',
+        target_classes: ensureArray(eventData.targetClasses),
+        coaches: ensureArray(eventData.coaches),
+      };
+      const { error } = await supabase.from('events').insert([insertPayload]);
+      if (!error) await fetchEvents();
     } catch (err) {
-      console.error('Falha na ligação:', err.message);
+      console.error('Erro ao adicionar evento:', err);
     }
   };
 
   const deleteEvent = async (eventId) => {
     try {
-      const { error } = await supabase
-        .from('events')
-        .delete()
-        .eq('id', eventId);
-
-      if (!error) {
-        await fetchEvents();
-      }
+      await supabase.from('events').delete().eq('id', eventId);
+      await fetchEvents();
     } catch (err) {
-      console.error('Falha ao eliminar evento:', err.message);
+      console.error('Erro ao eliminar evento:', err);
     }
   };
 
@@ -692,99 +500,20 @@ export function AppProvider({ children }) {
     const currentStatus = typeof current === 'object' ? current?.status : current;
     const newStatus = forcedStatus !== undefined ? forcedStatus : !currentStatus;
 
-    setEventAttendances((prev) => ({
-      ...prev,
-      [key]: { status: newStatus },
-    }));
-
+    setEventAttendances((prev) => ({ ...prev, [key]: { status: newStatus } }));
     try {
-      await supabase
-        .from('event_attendances')
-        .upsert({
-          event_id: String(eventId),
-          athlete_id: String(athleteId),
-          status: newStatus,
-        }, { onConflict: 'event_id, athlete_id' });
+      await supabase.from('event_attendances').upsert({
+        event_id: String(eventId),
+        athlete_id: String(athleteId),
+        status: newStatus,
+      }, { onConflict: 'event_id, athlete_id' });
     } catch (err) {
-      console.error('Erro ao sincronizar presença no Supabase:', err.message);
-    }
-  };
-
-  const addAdultClass = async (classData) => {
-    try {
-      const payload = {
-        date: classData.date,
-        time: classData.time,
-        max_seats: classData.maxSeats || 15,
-        enrolled_parents: classData.enrolledParents || []
-      };
-      if (classData.id) {
-        payload.id = classData.id;
-      }
-
-      const { error } = await supabase.from('adult_classes').insert([payload]);
-      if (error) throw error;
-      await fetchAdultClasses();
-    } catch (err) {
-      console.error('Erro ao criar aula de adultos:', err.message);
-    }
-  };
-
-  const deleteAdultClass = async (classId) => {
-    try {
-      const { error } = await supabase.from('adult_classes').delete().eq('id', classId);
-      if (error) throw error;
-      await fetchAdultClasses();
-    } catch (err) {
-      console.error('Erro ao eliminar aula de adultos:', err.message);
-    }
-  };
-
-  const enrollInAdultClass = async (classId, parentInfo) => {
-    const targetClass = adultClasses.find(c => c.id === classId);
-    if (!targetClass) return;
-
-    const currentEnrolled = targetClass.enrolledParents || [];
-    const alreadyEnrolled = currentEnrolled.some((p) => p.id === parentInfo.id || p.email === parentInfo.email);
-    if (alreadyEnrolled || currentEnrolled.length >= targetClass.maxSeats) return;
-
-    const updatedEnrolled = [...currentEnrolled, parentInfo];
-
-    try {
-      const { error } = await supabase
-        .from('adult_classes')
-        .update({ enrolled_parents: updatedEnrolled })
-        .eq('id', classId);
-
-      if (error) throw error;
-      await fetchAdultClasses();
-    } catch (err) {
-      console.error('Erro ao inscrever na aula de adultos:', err.message);
-    }
-  };
-
-  const cancelAdultClassEnrollment = async (classId, parentId) => {
-    const targetClass = adultClasses.find(c => c.id === classId);
-    if (!targetClass) return;
-
-    const updatedEnrolled = (targetClass.enrolledParents || []).filter((p) => p.id !== parentId);
-
-    try {
-      const { error } = await supabase
-        .from('adult_classes')
-        .update({ enrolled_parents: updatedEnrolled })
-        .eq('id', classId);
-
-      if (error) throw error;
-      await fetchAdultClasses();
-    } catch (err) {
-      console.error('Erro ao cancelar inscrição na aula de adultos:', err.message);
+      console.error('Erro na presença do evento:', err);
     }
   };
 
   const sendMessage = async (msgObj) => {
     setMessages((prev) => [...prev, msgObj]);
-
     try {
       await supabase.from('messages').insert([{
         sender: msgObj.sender,
@@ -795,7 +524,7 @@ export function AppProvider({ children }) {
         date: msgObj.date || new Date().toLocaleDateString('pt-PT')
       }]);
     } catch (err) {
-      console.error('Erro ao guardar mensagem na base de dados:', err);
+      console.error('Erro ao enviar mensagem:', err);
     }
   };
 
@@ -825,10 +554,6 @@ export function AppProvider({ children }) {
         deleteEvent,
         fetchEvents,
         toggleEventAttendance,
-        addAdultClass,
-        deleteAdultClass,
-        enrollInAdultClass,
-        cancelAdultClassEnrollment,
         sendMessage,
         fetchRegistrations,
         fetchAdultRegistrations

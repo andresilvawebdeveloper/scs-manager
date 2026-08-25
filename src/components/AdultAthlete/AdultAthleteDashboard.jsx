@@ -4,7 +4,7 @@ import { supabase } from '../../services/supabaseClient';
 
 export default function AdultAthleteDashboard({ registration, onLogout }) {
   const { 
-    updateRegistrationByParent, 
+    updateAdultRegistration,
     adultClasses, 
     enrollInAdultClass, 
     cancelAdultClassEnrollment,
@@ -35,9 +35,24 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    updateRegistrationByParent(registration.id, formData);
+    
+    // Mapear os campos para os nomes corretos da tabela 'adult_registrations'
+    const payload = {
+      full_name: formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name,
+      phone: formData.phone,
+      address: formData.address,
+      nif: formData.nif || formData.athleteNIF || formData.athlete_nif,
+      cc: formData.cc || formData.athleteCC || formData.athlete_cc,
+      payment_mode: formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal'
+    };
+
+    if (updateAdultRegistration) {
+      await updateAdultRegistration(registration.id, payload);
+    }
+
+    setFormData({ ...formData, ...payload });
     setSuccessMsg('Dados atualizados com sucesso!');
     setIsEditing(false);
   };
@@ -45,7 +60,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const handleEnroll = (classId) => {
     const participantInfo = {
       id: registration.id,
-      name: registration.athleteName || formData.athleteName,
+      name: formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name,
       email: userEmail,
       timestamp: new Date().toISOString()
     };
@@ -71,8 +86,8 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
     const msgObj = {
       id: Date.now().toString(),
-      sender: 'Parent', // Usado como remetente cliente
-      senderName: registration.athleteName || formData.athleteName,
+      sender: 'Parent',
+      senderName: formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name,
       senderEmail: userEmail,
       recipientEmail: 'Coach',
       text: chatText.trim(),
@@ -87,6 +102,14 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     setChatText('');
     setIsSendingChat(false);
   };
+
+  // Normalização segura para exibição
+  const displayName = formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name || 'Aluno';
+  const displayBirth = formData.birth_date || formData.birthDate || 'Não preenchido';
+  const displayCC = formData.cc || formData.athleteCC || formData.athlete_cc || 'Não preenchido';
+  const displayNif = formData.nif || formData.athleteNIF || formData.athlete_nif || 'Não preenchido';
+  const displayAddress = formData.address || 'Não preenchida';
+  const displayPayment = formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal';
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
@@ -179,14 +202,14 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
               {!isEditing ? (
                 <div className="space-y-4 text-xs text-gray-700">
                   <div className="bg-gray-50 p-4 rounded-xl space-y-1.5 border border-gray-100">
-                    <p><strong>Nome Completo:</strong> {formData.athleteName || formData.athlete_name}</p>
-                    <p><strong>Data de Nascimento:</strong> {formData.birthDate || formData.birth_date}</p>
-                    <p><strong>Cartão de Cidadão:</strong> {formData.athleteCC || formData.athlete_cc || 'Não preenchido'}</p>
-                    <p><strong>NIF:</strong> {formData.athleteNIF || formData.athlete_nif || 'Não preenchido'}</p>
-                    <p><strong>Morada:</strong> {formData.address || 'Não preenchida'}</p>
+                    <p><strong>Nome Completo:</strong> {displayName}</p>
+                    <p><strong>Data de Nascimento:</strong> {displayBirth}</p>
+                    <p><strong>Cartão de Cidadão:</strong> {displayCC}</p>
+                    <p><strong>NIF:</strong> {displayNif}</p>
+                    <p><strong>Morada:</strong> {displayAddress}</p>
                     <p><strong>Email:</strong> {formData.email}</p>
                     <p><strong>Telemóvel:</strong> {formData.phone}</p>
-                    <p><strong>Tipo de Pagamento:</strong> {formData.adultClassesPaymentMode || 'Mensal'}</p>
+                    <p><strong>Tipo de Pagamento:</strong> {displayPayment}</p>
                   </div>
                 </div>
               ) : (
@@ -194,7 +217,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
                   <div className="bg-gray-50 p-4 rounded-xl space-y-3">
                     <div>
                       <label className="block font-medium text-gray-700 mb-1">Nome Completo</label>
-                      <input type="text" name="athleteName" value={formData.athleteName || formData.athlete_name || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" required />
+                      <input type="text" name="full_name" value={formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" required />
                     </div>
                     <div>
                       <label className="block font-medium text-gray-700 mb-1">Telemóvel</label>
@@ -205,8 +228,16 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
                       <input type="text" name="address" value={formData.address || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" />
                     </div>
                     <div>
+                      <label className="block font-medium text-gray-700 mb-1">NIF</label>
+                      <input type="text" name="nif" value={formData.nif || formData.athleteNIF || formData.athlete_nif || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" />
+                    </div>
+                    <div>
+                      <label className="block font-medium text-gray-700 mb-1">Cartão de Cidadão</label>
+                      <input type="text" name="cc" value={formData.cc || formData.athleteCC || formData.athlete_cc || ''} onChange={handleChange} className="w-full p-2.5 border rounded-xl" />
+                    </div>
+                    <div>
                       <label className="block font-medium text-gray-700 mb-1">Tipo de Pagamento</label>
-                      <select name="adultClassesPaymentMode" value={formData.adultClassesPaymentMode || 'Mensal'} onChange={handleChange} className="w-full p-2 border rounded-xl bg-white">
+                      <select name="payment_mode" value={formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal'} onChange={handleChange} className="w-full p-2 border rounded-xl bg-white">
                         <option value="Mensal">Mensal</option>
                         <option value="Avulso">Avulso</option>
                       </select>
