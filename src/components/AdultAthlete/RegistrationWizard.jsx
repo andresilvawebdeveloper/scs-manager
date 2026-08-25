@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 
 export default function RegistrationWizard({ onBack }) {
-  const { addRegistration } = useApp();
+  const { addAdultRegistration } = useApp();
   const [step, setStep] = useState(1);
   const totalSteps = 6; // 6 passos focados estritamente no adulto (sem dados de EE separado)
   
@@ -112,25 +112,20 @@ export default function RegistrationWizard({ onBack }) {
   const handleSubmitFinal = async () => {
     try {
       const payload = {
-        athlete_name: formData.athleteName,
+        athlete_name: formData.athleteName, // Apanhado corretamente pelo addAdultRegistration
         birth_date: formData.birthDate,
         gender: formData.gender,
         athlete_cc: formData.athleteCC,
         athlete_nif: formData.athleteNIF,
-        parent_name: formData.athleteName, // Para adultos, o próprio é o titular
-        parent_cc: formData.athleteCC,
         email: formData.email,
         phone: formData.phone,
         address: formData.address,
         postal_code: formData.postalCode,
         city: formData.city,
-        assigned_class: 'Aulas de Adultos',
-        adultClassesInterest: 'Sim',
-        adultClassesParticipants: 'Adulto',
         adultClassesPaymentMode: formData.paymentMode,
       };
 
-      const result = await addRegistration(payload);
+      const result = await addAdultRegistration(payload);
 
       if (result && result.success) {
         setFeedback(result);

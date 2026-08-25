@@ -321,11 +321,21 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Gerador de Código de Acesso no formato SCS-XXXXXX
+  // Gerador de Código de Acesso Normal (6 caracteres) para Encarregados de Educação
   const generateSCSCode = () => {
     const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     let randomPart = '';
     for (let i = 0; i < 6; i++) {
+      randomPart += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+    return `SCS-${randomPart}`;
+  };
+
+  // Gerador de Código de Acesso Específico para Adultos (7 caracteres para garantir unicidade)
+  const generateAdultSCSCode = () => {
+    const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+    let randomPart = '';
+    for (let i = 0; i < 7; i++) {
       randomPart += characters.charAt(Math.floor(Math.random() * characters.length));
     }
     return `SCS-${randomPart}`;
@@ -390,9 +400,9 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Submeter nova inscrição de adulto na tabela dedicada 'adult_registrations'
+  // Submeter nova inscrição de adulto na tabela dedicada 'adult_registrations' (Usa código de 7 caracteres)
   const addAdultRegistration = async (formData) => {
-    const assignedCode = generateSCSCode();
+    const assignedCode = generateAdultSCSCode();
     const generatedId = typeof crypto !== 'undefined' && crypto.randomUUID 
       ? crypto.randomUUID() 
       : `adult_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
@@ -510,6 +520,7 @@ export function AppProvider({ children }) {
     }
   };
 
+  // LOGIN DE ENCARREGADO (Procura exclusivamente na tabela 'registrations')
   const loginParentByCode = (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
@@ -540,6 +551,7 @@ export function AppProvider({ children }) {
     return { success: true, registration };
   };
 
+  // LOGIN DE ADULTO (Procura exclusivamente na tabela 'adult_registrations')
   const loginAdultByCode = (code) => {
     if (!code) {
       return { success: false, message: 'Por favor, insira o código de acesso.' };
@@ -548,7 +560,7 @@ export function AppProvider({ children }) {
     const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
     const registration = adultRegistrations.find((reg) => {
-      const dbCodeRaw = reg.access_code || '';
+      const dbCodeRaw = reg.access_code || reg.accessCode || reg.code || '';
       const cleanDbCode = dbCodeRaw.toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
       return cleanDbCode === cleanInput && cleanDbCode.length > 0;
     });
@@ -560,7 +572,7 @@ export function AppProvider({ children }) {
       };
     }
 
-    if (registration.status !== 'accepted') {
+    if (registration.status && registration.status !== 'accepted') {
       return { 
         success: false, 
         message: 'A sua inscrição ainda está pendente de validação pelo treinador.' 
@@ -805,7 +817,7 @@ export function AppProvider({ children }) {
         updateRegistrationByParent,
         updateAdultRegistration,
         loginParentByCode,
-        loginAdultByCode, // <--- EXPORTADO CORRETAMENTE AQUI
+        loginAdultByCode,
         loginCoach,
         logoutCoach,
         toggleAttendance,

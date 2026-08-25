@@ -20,6 +20,7 @@ export default function Dashboard({ onLogout }) {
     toggleEventAttendance,
     adultRegistrations,
     fetchAdultRegistrations,
+    updateAdultRegistration,
     messages,
     sendMessage
   } = useApp();
@@ -41,6 +42,7 @@ export default function Dashboard({ onLogout }) {
   const [selectedClasses, setSelectedClasses] = useState({});
 
   const [expandedAthletes, setExpandedAthletes] = useState({});
+  const [expandedAdults, setExpandedAdults] = useState({});
   const [expandedEventId, setExpandedEventId] = useState(null);
 
   const [newEventName, setNewEventName] = useState('');
@@ -150,6 +152,8 @@ export default function Dashboard({ onLogout }) {
   const acceptedList = registrations.filter((r) => r.status === 'accepted');
 
   const stormfitRegistrations = adultRegistrations || [];
+  const pendingAdultsList = stormfitRegistrations.filter((a) => !a.status || a.status === 'pending');
+  const acceptedAdultsList = stormfitRegistrations.filter((a) => a.status === 'accepted');
 
   const handleClassChange = (id, className) => {
     setSelectedClasses({ ...selectedClasses, [id]: className });
@@ -157,6 +161,13 @@ export default function Dashboard({ onLogout }) {
 
   const toggleExpandAthlete = (id) => {
     setExpandedAthletes((prev) => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
+  const toggleExpandAdult = (id) => {
+    setExpandedAdults((prev) => ({
       ...prev,
       [id]: !prev[id]
     }));
@@ -215,6 +226,66 @@ export default function Dashboard({ onLogout }) {
     } catch (err) {
       console.error("Erro ao aceitar/enviar email:", err.message);
       alert("Inscrição aceite, mas ocorreu um erro no processamento do email: " + err.message);
+    }
+  };
+
+  const handleAcceptAdult = async (adultId) => {
+    const adult = stormfitRegistrations.find((a) => a.id === adultId);
+    if (!adult) return;
+
+    const accessCodeToSend = adult.access_code || adult.accessCode;
+
+    try {
+      if (updateAdultRegistration) {
+        await updateAdultRegistration(adultId, { status: 'accepted' });
+      }
+
+      const adultEmail = adult.email;
+      const adultName = adult.full_name || adult.fullName;
+
+      if (adultEmail) {
+        const { error } = await supabase.functions.invoke('send-club-email', {
+          body: { 
+            email: adultEmail,
+            athleteName: adultName,
+            status: 'accepted',
+            accessCode: accessCodeToSend
+          }
+        });
+
+        if (error) throw error;
+      }
+
+      alert(`Inscrição de adulto aceite e email de acesso enviado para ${adultEmail}!`);
+      if (fetchAdultRegistrations) fetchAdultRegistrations();
+
+    } catch (err) {
+      console.error("Erro ao aceitar adulto:", err.message);
+      alert("Inscrição aceite, mas erro ao enviar email: " + err.message);
+    }
+  };
+
+  const handleRejectAdult = async (adultId) => {
+    if (!window.confirm("Tem a certeza que pretende rejeitar e eliminar esta inscrição?")) return;
+    try {
+      const { error } = await supabase.from('adult_registrations').delete().eq('id', adultId);
+      if (error) throw error;
+      if (fetchAdultRegistrations) fetchAdultRegistrations();
+      alert("Inscrição rejeitada com sucesso.");
+    } catch (err) {
+      alert("Erro ao rejeitar: " + err.message);
+    }
+  };
+
+  const handleRemoveAdult = async (adultId, adultName) => {
+    if (!window.confirm(`Tem a certeza que pretende remover o adulto ${adultName}?`)) return;
+    try {
+      const { error } = await supabase.from('adult_registrations').delete().eq('id', adultId);
+      if (error) throw error;
+      if (fetchAdultRegistrations) fetchAdultRegistrations();
+      alert("Adulto removido com sucesso.");
+    } catch (err) {
+      alert("Erro ao remover: " + err.message);
     }
   };
 
@@ -584,7 +655,10 @@ export default function Dashboard({ onLogout }) {
           </div>
           <div className="flex items-center space-x-2">
             <button
-              onClick={() => fetchRegistrations && fetchRegistrations()}
+              onClick={() => {
+                if (fetchRegistrations) fetchRegistrations();
+                if (fetchAdultRegistrations) fetchAdultRegistrations();
+              }}
               className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl font-medium transition"
               title="Atualizar lista de inscrições"
             >
@@ -605,7 +679,7 @@ export default function Dashboard({ onLogout }) {
         <div className="grid grid-cols-4 gap-2 sm:gap-3">
           <div className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-gray-200 flex items-center space-x-2 sm:space-x-3">
             <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center font-bold text-xs">
-              {pendingList.length}
+              {pendingList.length + pendingAdultsList.length}
             </div>
             <div>
               <p className="text-[10px] sm:text-[11px] text-gray-500 font-medium">Pendentes</p>
@@ -646,12 +720,12 @@ export default function Dashboard({ onLogout }) {
       <div className="max-w-4xl mx-auto px-4 mt-6">
         <div className="grid grid-cols-7 gap-1 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-200 text-center">
           <button
-            onClick={() => { setActiveTab('pending'); fetchRegistrations && fetchRegistrations(); }}
+            onClick={() => { setActiveTab('pending'); fetchRegistrations && fetchRegistrations(); fetchAdultRegistrations && fetchAdultRegistrations(); }}
             className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
               activeTab === 'pending' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            Pendentes ({pendingList.length})
+            Pendentes ({pendingList.length + pendingAdultsList.length})
           </button>
           <button
             onClick={() => setActiveTab('accepted')}
@@ -708,96 +782,160 @@ export default function Dashboard({ onLogout }) {
         
         {/* SECÇÃO: PENDENTES */}
         {activeTab === 'pending' && (
-          <div className="space-y-4">
-            <div className="flex justify-between items-center">
-              <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes</h2>
-              <button 
-                onClick={() => fetchRegistrations && fetchRegistrations()}
-                className="text-xs text-clubRed font-semibold hover:underline"
-              >
-                🔄 Recarregar Inscrições
-              </button>
-            </div>
-
-            {pendingList.length === 0 ? (
-              <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-200 text-center space-y-2">
-                <p className="text-sm font-semibold text-gray-700">Tudo em dia!</p>
-                <p className="text-xs text-gray-400">Não existem inscrições pendentes de momento.</p>
+          <div className="space-y-6">
+            <div className="space-y-4">
+              <div className="flex justify-between items-center">
+                <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes (Atletas)</h2>
+                <button 
+                  onClick={() => fetchRegistrations && fetchRegistrations()}
+                  className="text-xs text-clubRed font-semibold hover:underline"
+                >
+                  🔄 Recarregar
+                </button>
               </div>
-            ) : (
-              pendingList.map((reg) => {
-                const name = reg.athleteName || reg.athlete_name || reg.fullName;
-                const birth = reg.birthDate || reg.birth_date;
-                const cc = reg.athleteCC || reg.athlete_cc;
-                const parent = reg.parentName || reg.parent_name;
-                const parentCc = reg.parentCC || reg.parent_cc;
-                const photoUrl = reg.photoUrl || reg.photo_url;
 
-                return (
-                  <div key={reg.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                    <div className="flex items-center space-x-4">
-                      {photoUrl ? (
-                        <img 
-                          src={photoUrl} 
-                          alt={name} 
-                          className="w-14 h-14 rounded-2xl object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
-                        />
+              {pendingList.length === 0 ? (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 text-center">
+                  <p className="text-xs text-gray-400">Não existem inscrições de atletas pendentes.</p>
+                </div>
+              ) : (
+                pendingList.map((reg) => {
+                  const name = reg.athleteName || reg.athlete_name || reg.fullName;
+                  const birth = reg.birthDate || reg.birth_date;
+                  const cc = reg.athleteCC || reg.athlete_cc;
+                  const parent = reg.parentName || reg.parent_name;
+                  const parentCc = reg.parentCC || reg.parent_cc;
+                  const photoUrl = reg.photoUrl || reg.photo_url;
+
+                  return (
+                    <div key={reg.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                      <div className="flex items-center space-x-4">
+                        {photoUrl ? (
+                          <img 
+                            src={photoUrl} 
+                            alt={name} 
+                            className="w-14 h-14 rounded-2xl object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
+                          />
+                        ) : (
+                          <div className="w-14 h-14 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0">
+                            👤
+                          </div>
+                        )}
+                        <div>
+                          <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                          <p className="text-xs text-gray-500">Nascimento: {birth} | Sexo: {reg.gender} | CC: {cc}</p>
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
+                        <div>
+                          <span className="text-gray-400 block mb-0.5">Encarregado de Educação</span>
+                          <strong className="text-gray-800">{parent}</strong> (CC: {parentCc})
+                        </div>
+                        <div>
+                          <span className="text-gray-400 block mb-0.5">Telemóvel e Email</span>
+                          <strong className="text-gray-800">{reg.phone}</strong>
+                          <span className="block text-gray-500">{reg.email}</span>
+                        </div>
+                      </div>
+
+                      {isAdmin ? (
+                        <>
+                          <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
+                            <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
+                            <select
+                              value={selectedClasses[reg.id] || 'Spark'}
+                              onChange={(e) => handleClassChange(reg.id, e.target.value)}
+                              className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
+                            >
+                              <option value="Spark">Spark (Formação Infantil)</option>
+                              <option value="Flame">Flame (Formação Geral)</option>
+                              <option value="Fusion">Fusion (Formação Avançada)</option>
+                              <option value="Thunder">Thunder (Pré-Representação)</option>
+                              <option value="Firestorm">Firestorm (Representação)</option>
+                              <option value="Stormfit">Stormfit (adultos)</option>
+                            </select>
+                          </div>
+
+                          <div className="flex space-x-3">
+                            <button
+                              onClick={() => handleAcceptWithClass(reg.id)}
+                              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                            >
+                              Aceitar e Atribuir Turma
+                            </button>
+                            <button
+                              onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
+                              className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                            >
+                              Rejeitar & Eliminar
+                            </button>
+                          </div>
+                        </>
                       ) : (
-                        <div className="w-14 h-14 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0">
-                          👤
+                        <div className="p-3 bg-gray-50 rounded-xl text-center border border-gray-200">
+                          <span className="text-xs text-gray-500 font-medium">
+                            🔒 Modo Leitura: Apenas a Treinadora Principal pode aprovar ou rejeitar fichas.
+                          </span>
                         </div>
                       )}
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-base">{name}</h3>
-                        <p className="text-xs text-gray-500">Nascimento: {birth} | Sexo: {reg.gender} | CC: {cc}</p>
-                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            {/* SEÇÃO DE ADULTOS PENDENTES */}
+            <div className="space-y-4 pt-4 border-t border-gray-200">
+              <div className="flex justify-between items-center">
+                <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes (Adultos / Stormfit)</h2>
+                <button 
+                  onClick={() => fetchAdultRegistrations && fetchAdultRegistrations()}
+                  className="text-xs text-clubRed font-semibold hover:underline"
+                >
+                  🔄 Recarregar Adultos
+                </button>
+              </div>
+
+              {pendingAdultsList.length === 0 ? (
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 text-center">
+                  <p className="text-xs text-gray-400">Não existem inscrições de adultos pendentes.</p>
+                </div>
+              ) : (
+                pendingAdultsList.map((adult) => (
+                  <div key={adult.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                    <div>
+                      <h3 className="font-bold text-gray-900 text-base">{adult.full_name || adult.fullName}</h3>
+                      <p className="text-xs text-gray-500">Nascimento: {adult.birth_date} | Sexo: {adult.gender} | NIF: {adult.nif}</p>
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
                       <div>
-                        <span className="text-gray-400 block mb-0.5">Encarregado de Educação</span>
-                        <strong className="text-gray-800">{parent}</strong> (CC: {parentCc})
+                        <span className="text-gray-400 block mb-0.5">Contactos</span>
+                        <strong className="text-gray-800">{adult.phone}</strong>
+                        <span className="block text-gray-500">{adult.email}</span>
                       </div>
                       <div>
-                        <span className="text-gray-400 block mb-0.5">Telemóvel e Email</span>
-                        <strong className="text-gray-800">{reg.phone}</strong>
-                        <span className="block text-gray-500">{reg.email}</span>
+                        <span className="text-gray-400 block mb-0.5">Modalidade</span>
+                        <strong className="text-gray-800">{adult.payment_mode || 'Mensal'}</strong>
                       </div>
                     </div>
 
                     {isAdmin ? (
-                      <>
-                        <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
-                          <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
-                          <select
-                            value={selectedClasses[reg.id] || 'Spark'}
-                            onChange={(e) => handleClassChange(reg.id, e.target.value)}
-                            className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
-                          >
-                            <option value="Spark">Spark (Formação Infantil)</option>
-                            <option value="Flame">Flame (Formação Geral)</option>
-                            <option value="Fusion">Fusion (Formação Avançada)</option>
-                            <option value="Thunder">Thunder (Pré-Representação)</option>
-                            <option value="Firestorm">Firestorm (Representação)</option>
-                            <option value="Stormfit">Stormfit (adultos)</option>
-                          </select>
-                        </div>
-
-                        <div className="flex space-x-3">
-                          <button
-                            onClick={() => handleAcceptWithClass(reg.id)}
-                            className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                          >
-                            Aceitar e Atribuir Turma
-                          </button>
-                          <button
-                            onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
-                            className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                          >
-                            Rejeitar & Eliminar
-                          </button>
-                        </div>
-                      </>
+                      <div className="flex space-x-3">
+                        <button
+                          onClick={() => handleAcceptAdult(adult.id)}
+                          className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                        >
+                          Aceitar Inscrição de Adulto
+                        </button>
+                        <button
+                          onClick={() => handleRejectAdult(adult.id)}
+                          className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                        >
+                          Rejeitar & Eliminar
+                        </button>
+                      </div>
                     ) : (
                       <div className="p-3 bg-gray-50 rounded-xl text-center border border-gray-200">
                         <span className="text-xs text-gray-500 font-medium">
@@ -806,9 +944,9 @@ export default function Dashboard({ onLogout }) {
                       </div>
                     )}
                   </div>
-                );
-              })
-            )}
+                ))
+              )}
+            </div>
           </div>
         )}
 
@@ -879,7 +1017,6 @@ export default function Dashboard({ onLogout }) {
                               
                               <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
                                 <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
-                                  {/* ESTILIZAÇÃO ESTRUTURAL DA FOTO NO CARTÃO (SEM "OK") */}
                                   {photoUrl ? (
                                     <div className="relative flex-shrink-0">
                                       <img 
@@ -1627,18 +1764,20 @@ export default function Dashboard({ onLogout }) {
                 </span>
               </div>
 
-              {stormfitRegistrations.length === 0 ? (
-                <div className="text-center py-8 text-xs text-gray-400">
-                  Não existem inscrições registadas na turma Stormfit de momento.
-                </div>
-              ) : (
-                <div className="space-y-3">
-                  {stormfitRegistrations.map((adult) => (
-                    <div key={adult.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-2">
+              {pendingAdultsList.length > 0 && (
+                <div className="space-y-3 pb-4 border-b border-gray-200">
+                  <h3 className="text-xs font-bold text-amber-600 uppercase tracking-wider">⏳ Inscrições Pendentes</h3>
+                  {pendingAdultsList.map((adult) => (
+                    <div key={adult.id} className="bg-amber-50/50 p-4 rounded-xl border border-amber-200 space-y-3">
                       <div className="flex justify-between items-start">
                         <div>
-                          <h3 className="font-bold text-gray-900 text-sm">{adult.full_name || adult.fullName}</h3>
-                          <p className="text-xs text-gray-500">
+                          <div className="flex items-center space-x-2">
+                            <h4 className="font-bold text-gray-900 text-sm">{adult.full_name || adult.fullName}</h4>
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                              Pendente
+                            </span>
+                          </div>
+                          <p className="text-xs text-gray-500 mt-0.5">
                             Email: <span className="font-semibold text-gray-700">{adult.email}</span> | Telemóvel: <span className="font-semibold text-gray-700">{adult.phone}</span>
                           </p>
                         </div>
@@ -1646,16 +1785,164 @@ export default function Dashboard({ onLogout }) {
                           {adult.payment_mode || 'Mensal'}
                         </span>
                       </div>
-                      <div className="text-[11px] text-gray-500 flex flex-wrap gap-x-4 pt-1 border-t border-gray-200/60">
+                      <div className="text-[11px] text-gray-500 flex flex-wrap gap-x-4 pt-1 border-t border-amber-200/60">
                         <span>📅 Nascimento: {adult.birth_date || 'N/D'}</span>
                         <span>💳 NIF: {adult.nif || 'N/D'}</span>
                         <span>📍 Localidade: {adult.city || 'N/D'}</span>
                         <span className="font-mono text-gray-700">Código: {adult.access_code}</span>
                       </div>
+                      {isAdmin && (
+                        <div className="pt-2 flex space-x-2">
+                          <button
+                            onClick={() => handleAcceptAdult(adult.id)}
+                            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold"
+                          >
+                            Aceitar Inscrição
+                          </button>
+                          <button
+                            onClick={() => handleRejectAdult(adult.id)}
+                            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-700 text-white rounded-lg text-xs font-bold"
+                          >
+                            Rejeitar
+                          </button>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
+
+              {/* Adultos Aceites com Ficha Completa, Foto, Chat e Remoção */}
+              <div className="space-y-3 pt-2">
+                <h3 className="text-xs font-bold text-emerald-700 uppercase tracking-wider">✓ Adultos Aceites na Turma</h3>
+                {acceptedAdultsList.length === 0 ? (
+                  <div className="text-center py-6 text-xs text-gray-400">
+                    Não existem adultos aceites na turma Stormfit de momento.
+                  </div>
+                ) : (
+                  acceptedAdultsList.map((adult) => {
+                    const isExpanded = expandedAdults[adult.id] || false;
+                    const adultEmail = adult.email;
+                    const name = adult.full_name || adult.fullName;
+                    const photoUrl = adult.photoUrl || adult.photo_url;
+
+                    return (
+                      <div key={adult.id} className="bg-white p-4 sm:p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+                        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+                          <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
+                            {photoUrl ? (
+                              <div className="relative flex-shrink-0">
+                                <img 
+                                  src={photoUrl} 
+                                  alt={name} 
+                                  className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-clubRed/20 shadow-md"
+                                />
+                              </div>
+                            ) : (
+                              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0 shadow-inner">
+                                👤
+                              </div>
+                            )}
+
+                            <div className="space-y-0.5 flex-1 min-w-0">
+                              <h3 className="font-bold text-gray-900 text-base leading-tight truncate">{name}</h3>
+                              <p className="text-xs text-gray-500">
+                                Turma: <span className="font-semibold text-clubRed">Stormfit (Adultos)</span> | Tel: <span className="text-gray-800 font-medium">{adult.phone}</span>
+                              </p>
+                              <p className="text-[11px] text-gray-400 font-mono">
+                                Código de Acesso: <span className="font-semibold text-gray-700">{adult.access_code || 'N/A'}</span>
+                              </p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2 w-full sm:w-auto justify-end border-t sm:border-t-0 pt-3 sm:pt-0 border-gray-100">
+                            <button
+                              onClick={() => toggleExpandAdult(adult.id)}
+                              className="px-3 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                            >
+                              <span>{isExpanded ? '▲ Ocultar Ficha' : '▼ Ver Ficha Completa'}</span>
+                            </button>
+
+                            {adultEmail && (
+                              <button
+                                onClick={() => handleOpenPrivateChat(adultEmail)}
+                                className="px-3 py-2 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 rounded-xl text-xs font-bold transition flex items-center space-x-1"
+                              >
+                                <span>💬 Chat</span>
+                              </button>
+                            )}
+
+                            {isAdmin && (
+                              <button
+                                onClick={() => handleRemoveAdult(adult.id, name)}
+                                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-xl text-xs font-bold transition"
+                              >
+                                Remover
+                              </button>
+                            )}
+                          </div>
+                        </div>
+
+                        {isExpanded && (
+                          <div className="pt-3 border-t border-gray-100 text-xs space-y-4 bg-gray-50/80 p-4 rounded-xl">
+                            {photoUrl && (
+                              <div className="flex flex-col items-center sm:items-start pb-2">
+                                <div className="bg-white p-2 rounded-2xl border border-gray-200 shadow-md flex flex-col items-center space-y-2">
+                                  <div className="relative">
+                                    <img 
+                                      src={photoUrl} 
+                                      alt={name} 
+                                      className="w-32 h-32 sm:w-36 sm:h-36 rounded-xl object-cover border border-gray-200" 
+                                    />
+                                  </div>
+                                  <span className="bg-clubRed/10 text-clubRed border border-clubRed/20 text-[10px] font-extrabold px-3 py-0.5 rounded-full uppercase tracking-wide">
+                                    📷 Fotografia Oficial
+                                  </span>
+                                </div>
+                              </div>
+                            )}
+
+                            <div className="space-y-1">
+                              <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                👤 Dados Pessoais
+                              </h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1 text-gray-700">
+                                <p><strong>Nascimento:</strong> {adult.birth_date || 'N/D'}</p>
+                                <p><strong>Sexo:</strong> {adult.gender || 'N/D'}</p>
+                                <p><strong>Cartão de Cidadão:</strong> {adult.cc || 'N/D'}</p>
+                                <p><strong>NIF:</strong> {adult.nif || 'N/D'}</p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                📞 Contactos & Morada
+                              </h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
+                                <p><strong>Email:</strong> {adultEmail || 'N/D'}</p>
+                                <p><strong>Telemóvel:</strong> {adult.phone || 'N/D'}</p>
+                                <p className="sm:col-span-2">
+                                  <strong>Morada:</strong> {adult.address || 'N/D'}, {adult.postal_code} {adult.city}
+                                </p>
+                              </div>
+                            </div>
+
+                            <div className="space-y-1">
+                              <h4 className="font-bold text-gray-800 border-b pb-1 text-[11px] uppercase tracking-wider text-clubRed">
+                                💳 Pagamento & Modalidade
+                              </h4>
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-gray-700">
+                                <p><strong>Modalidade:</strong> {adult.payment_mode || 'Mensal'}</p>
+                                <p><strong>Estado:</strong> Aceite</p>
+                              </div>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
             </div>
           </div>
         )}
