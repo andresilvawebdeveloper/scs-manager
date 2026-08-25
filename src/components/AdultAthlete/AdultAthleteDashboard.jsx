@@ -1,6 +1,119 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../services/supabaseClient';
+
+// Hook para calcular a contagem decrescente exata em tempo real
+function useCountdown(targetDate) {
+  const [timeLeft, setTimeLeft] = useState({ days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: false });
+
+  useEffect(() => {
+    if (!targetDate) return;
+
+    const calculateTime = () => {
+      const now = new Date().getTime();
+      const difference = targetDate.getTime() - now;
+
+      if (difference <= 0) {
+        setTimeLeft({ days: 0, hours: 0, minutes: 0, seconds: 0, isExpired: true });
+        return;
+      }
+
+      const days = Math.floor(difference / (1000 * 60 * 60 * 24));
+      const hours = Math.floor((difference % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+      const minutes = Math.floor((difference % (1000 * 60 * 60)) / (1000 * 60));
+      const seconds = Math.floor((difference % (1000 * 60)) / 1000);
+
+      setTimeLeft({ days, hours, minutes, seconds, isExpired: false });
+    };
+
+    calculateTime();
+    const interval = setInterval(calculateTime, 1000);
+    return () => clearInterval(interval);
+  }, [targetDate]);
+
+  return timeLeft;
+}
+
+// Componente individual para cada aula com base na hora e data exata
+function AdultClassItem({ classItem, registration, onEnroll, onCancel }) {
+  const paymentMode = registration.payment_mode || registration.paymentMode || 'Mensal';
+  const isAvulso = paymentMode !== 'Mensal';
+
+  // 1. Extrair a data e a hora exata da aula (ex: "2026-09-01" e "19:00")
+  const classDateStr = classItem.date; // Esperado formato "YYYY-MM-DD" ou string legível
+  const classTimeStr = classItem.time || '00:00'; // Esperado formato "HH:MM"
+
+  // Criar o objeto Date exato do momento da aula
+  const classDateTime = new Date(`${classDateStr}T${classTimeStr}:00`);
+
+  // 2. Obter os dias de antecedência configurados pelo treinador (ex: 1 dia)
+  const daysBefore = classItem.daysBefore || classItem.days_before || 1;
+
+  // 3. Calcular a data/hora exata de abertura (Hora da Aula menos os dias definidos)
+  const openingDateTime = new Date(classDateTime.getTime());
+  openingDateTime.setDate(openingDateTime.getDate() - daysBefore);
+
+  const countdown = useCountdown(openingDateTime);
+
+  const enrolledList = classItem.enrolledParents || [];
+  const myIndex = enrolledList.findIndex((p) => p.id === registration.id || p.email === registration.email);
+  const isEnrolled = myIndex !== -1;
+  const isFull = enrolledList.length >= classItem.maxSeats;
+
+  // Bloqueado para avulso se ainda não chegou à data/hora exata de abertura
+  const isLockedForAvulso = isAvulso && !countdown.isExpired;
+
+  return (
+    <div className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
+      <div className="flex justify-between items-start">
+        <div>
+          <span className="text-xs font-bold text-gray-900 block">📅 Data: {classItem.date}</span>
+          <span className="text-[11px] text-gray-500 block">⏰ Horário: {classItem.time}</span>
+          <span className="text-[10px] text-gray-400 block mt-1">Lugares: {enrolledList.length} / {classItem.maxSeats}</span>
+          
+          {isAvulso && (
+            <span className="inline-block mt-1 text-[10px] bg-amber-100 text-amber-800 font-bold px-2 py-0.5 rounded">
+              Modo: Avulso (Abre {daysBefore}d antes à hora exata)
+            </span>
+          )}
+        </div>
+      </div>
+
+      {/* Caixa de contagem decrescente com referência à hora exata da aula */}
+      {isLockedForAvulso && !isEnrolled && (
+        <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-lg text-center space-y-1">
+          <p className="text-[10px] font-semibold text-amber-800 uppercase tracking-wide">
+            ⏳ Inscrição abre em:
+          </p>
+          <div className="text-xs font-mono font-bold text-amber-900">
+            {countdown.days}d {countdown.hours}h {countdown.minutes}m {countdown.seconds}s
+          </div>
+        </div>
+      )}
+
+      <div className="pt-2 border-t border-gray-200 flex items-center justify-between">
+        {isEnrolled ? (
+          <div className="flex items-center justify-between w-full">
+            <span className="text-xs font-bold text-emerald-700">✓ Inscrito (Lugar #{myIndex + 1})</span>
+            <button onClick={() => onCancel(classItem.id)} className="px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-semibold">
+              Cancelar Inscrição
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => onEnroll(classItem.id, paymentMode)}
+            disabled={isFull || isLockedForAvulso}
+            className={`w-full py-2.5 rounded-xl text-xs font-bold ${
+              isFull || isLockedForAvulso ? 'bg-gray-200 text-gray-400 cursor-not-allowed' : 'bg-amber-600 text-white hover:bg-amber-700'
+            }`}
+          >
+            {isFull ? 'Vagas Preenchidas' : isLockedForAvulso ? 'Aguardar Abertura...' : 'Reservar Minha Vaga'}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
 
 export default function AdultAthleteDashboard({ registration, onLogout }) {
   const { 
@@ -56,7 +169,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     setIsEditing(false);
   };
 
-  const handleEnroll = async (classId) => {
+  const handleEnroll = async (classId, paymentMode) => {
     const participantInfo = {
       id: registration.id,
       name: formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name,
@@ -65,7 +178,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     };
 
     if (bookAdultClass) {
-      const res = await bookAdultClass(classId, participantInfo);
+      const res = await bookAdultClass(classId, participantInfo, paymentMode);
       if (res && res.message) {
         setSuccessMsg(res.message);
       }
@@ -118,7 +231,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
       
-      {/* Header com o logotipo solicitado */}
+      {/* Header com o logotipo */}
       <header className="bg-amber-600 text-white p-4 shadow-md flex justify-between items-center">
         <div className="flex items-center space-x-2">
           <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center p-1 shadow">
@@ -183,7 +296,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
                 </span>
               </div>
               <p className="text-xs text-gray-500">
-                Modalidade: <strong className="text-amber-700 font-bold">Aulas de Adultos</strong>
+                Modalidade: <strong className="text-amber-700 font-bold">Aulas de Adultos ({displayPayment})</strong>
               </p>
               <p className="text-xs text-gray-500">
                 Código de Acesso: <strong className="text-gray-900 font-mono">{registration.accessCode || registration.access_code}</strong>
@@ -257,7 +370,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
           </>
         )}
 
-        {/* ABA 2: AULAS DE ADULTOS */}
+        {/* ABA 2: AULAS DE ADULTOS COM CONTAGEM BASEADA NA HORA DA AULA */}
         {activeTab === 'adultClasses' && (
           <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
             <h2 className="font-bold text-gray-800 text-sm">Aulas de Adultos Disponíveis</h2>
@@ -267,45 +380,15 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
               </div>
             ) : (
               <div className="space-y-3">
-                {activeAdultClasses.map((classItem) => {
-                  const enrolledList = classItem.enrolledParents || [];
-                  const myIndex = enrolledList.findIndex((p) => p.id === registration.id || p.email === userEmail);
-                  const isEnrolled = myIndex !== -1;
-                  const isFull = enrolledList.length >= classItem.maxSeats;
-
-                  return (
-                    <div key={classItem.id} className="p-4 bg-gray-50 rounded-xl border border-gray-200 space-y-3">
-                      <div className="flex justify-between items-start">
-                        <div>
-                          <span className="text-xs font-bold text-gray-900 block">📅 Data: {classItem.date}</span>
-                          <span className="text-[11px] text-gray-500 block">⏰ Horário: {classItem.time}</span>
-                          <span className="text-[10px] text-gray-400 block mt-1">Lugares: {enrolledList.length} / {classItem.maxSeats}</span>
-                        </div>
-                      </div>
-
-                      <div className="pt-2 border-t border-gray-200 flex items-center justify-between">
-                        {isEnrolled ? (
-                          <div className="flex items-center justify-between w-full">
-                            <span className="text-xs font-bold text-emerald-700">✓ Inscrito (Lugar #{myIndex + 1})</span>
-                            <button onClick={() => handleCancelEnrollment(classItem.id)} className="px-3 py-1.5 bg-rose-50 text-rose-600 rounded-lg text-xs font-semibold">
-                              Cancelar Inscrição
-                            </button>
-                          </div>
-                        ) : (
-                          <button
-                            onClick={() => handleEnroll(classItem.id)}
-                            disabled={isFull}
-                            className={`w-full py-2.5 rounded-xl text-xs font-bold ${
-                              isFull ? 'bg-gray-200 text-gray-400' : 'bg-amber-600 text-white hover:bg-amber-700'
-                            }`}
-                          >
-                            {isFull ? 'Vagas Preenchidas' : 'Reservar Minha Vaga'}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-                  );
-                })}
+                {activeAdultClasses.map((classItem) => (
+                  <AdultClassItem 
+                    key={classItem.id} 
+                    classItem={classItem} 
+                    registration={formData} 
+                    onEnroll={handleEnroll} 
+                    onCancel={handleCancelEnrollment} 
+                  />
+                ))}
               </div>
             )}
           </div>

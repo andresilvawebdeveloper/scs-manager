@@ -262,26 +262,45 @@ export function AppProvider({ children }) {
     }
   };
 
-  const bookAdultClass = async (classId, adultUserData) => {
+  const bookAdultClass = async (classId, adultUserData, paymentMode = 'Mensal') => {
     try {
       const { data: currentClass, error: fetchError } = await supabase
         .from('adult_classes')
-        .select('enrolled_parents, max_seats')
+        .select('*')
         .eq('id', classId)
         .single();
 
       if (fetchError) throw fetchError;
 
+      // Se for Avulso, verificar se já atingiu o período de abertura permitido
+      if (paymentMode !== 'Mensal') {
+        const classDate = new Date(`${currentClass.date}T${currentClass.time || '00:00'}:00`);
+        const allowedDaysBefore = currentClass.days_before || currentClass.daysBefore || 1;
+        
+        const openingDate = new Date(classDate.getTime());
+        openingDate.setDate(openingDate.getDate() - allowedDaysBefore);
+        openingDate.setHours(0, 0, 0, 0);
+
+        const now = new Date();
+        if (now < openingDate) {
+          return { 
+            success: false, 
+            message: `Inscrição indisponível. Alunos avulso só podem inscrever-se ${allowedDaysBefore} dia(s) antes.` 
+          };
+        }
+      }
+
       const currentEnrolled = Array.isArray(currentClass.enrolled_parents) 
         ? currentClass.enrolled_parents 
         : [];
 
-      const alreadyEnrolled = currentEnrolled.some(p => p.email === adultUserData.email);
+      const alreadyEnrolled = currentEnrolled.some(p => p.id === adultUserData.id || p.email === adultUserData.email);
       if (alreadyEnrolled) {
         return { success: false, message: "Já se encontra inscrito nesta aula." };
       }
 
-      if (currentEnrolled.length >= currentClass.max_seats) {
+      const maxSeats = currentClass.max_seats || currentClass.maxSeats || 15;
+      if (currentEnrolled.length >= maxSeats) {
         return { success: false, message: "Esta aula já atingiu o limite máximo de vagas." };
       }
 
@@ -300,6 +319,37 @@ export function AppProvider({ children }) {
     } catch (err) {
       console.error("Erro ao inscrever na aula de adultos:", err.message);
       return { success: false, message: "Erro ao efetuar inscrição: " + err.message };
+    }
+  };
+
+  const cancelAdultClassEnrollment = async (classId, adultId) => {
+    try {
+      const { data: currentClass, error: fetchError } = await supabase
+        .from('adult_classes')
+        .select('enrolled_parents')
+        .eq('id', classId)
+        .single();
+
+      if (fetchError) throw fetchError;
+
+      const currentEnrolled = Array.isArray(currentClass.enrolled_parents) 
+        ? currentClass.enrolled_parents 
+        : [];
+
+      const updatedEnrolled = currentEnrolled.filter(p => p.id !== adultId);
+
+      const { error: updateError } = await supabase
+        .from('adult_classes')
+        .update({ enrolled_parents: updatedEnrolled })
+        .eq('id', classId);
+
+      if (updateError) throw updateError;
+
+      await fetchAdultClasses();
+      return { success: true, message: "Inscrição cancelada com sucesso!" };
+    } catch (err) {
+      console.error("Erro ao cancelar inscrição:", err.message);
+      return { success: false, message: err.message };
     }
   };
 
@@ -629,7 +679,8 @@ export function AppProvider({ children }) {
         addAdultClass,
         deleteAdultClass,
         fetchAdultClasses,
-        bookAdultClass
+        bookAdultClass,
+        cancelAdultClassEnrollment
       }}
     >
       {children}
