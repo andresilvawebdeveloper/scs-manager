@@ -83,6 +83,9 @@ export default function Dashboard({ onLogout }) {
   const [showEventResponsesModal, setShowEventResponsesModal] = useState(false);
   const [newResponsesSummary, setNewResponsesSummary] = useState([]);
 
+  // Estados para Justificações de Faltas
+  const [attendanceJustifications, setAttendanceJustifications] = useState({});
+
   useEffect(() => {
     if (currentCoach?.email) {
       setProfileEmail(currentCoach.email);
@@ -197,6 +200,14 @@ export default function Dashboard({ onLogout }) {
     }
   };
 
+  const handleJustificationChange = (athleteId, text) => {
+    const key = `${athleteId}_${selectedDate}`;
+    setAttendanceJustifications((prev) => ({
+      ...prev,
+      [key]: text
+    }));
+  };
+
   const handleAcceptWithClass = async (regId) => {
     const assignedClass = selectedClasses[regId] || 'Spark';
     const athlete = pendingList.find((r) => r.id === regId);
@@ -291,7 +302,6 @@ export default function Dashboard({ onLogout }) {
     }
   };
 
-  // Função Corrigida para Criar Aula de Pais / Adultos com Sincronização via Contexto
   const handleCreateAdultClass = async (e) => {
     e.preventDefault();
     if (!newAdultClassDate || !newAdultClassTime) return;
@@ -686,7 +696,7 @@ export default function Dashboard({ onLogout }) {
         </div>
       )}
 
-      {/* Header com o Logotipo solicitado */}
+      {/* Header com o Logotipo */}
       <header className="bg-gradient-to-r from-clubRed to-red-700 text-white shadow-lg">
         <div className="max-w-4xl mx-auto px-4 py-5 flex justify-between items-center">
           <div className="flex items-center space-x-3">
@@ -1272,7 +1282,7 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: PRESENÇAS */}
+        {/* SECÇÃO: PRESENÇAS COM CAIXA DE JUSTIFICAÇÃO */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -1333,77 +1343,97 @@ export default function Dashboard({ onLogout }) {
               }
 
               return athletesInSelectedClass.map((reg) => {
-                const currentStatus = localAttendances[`${reg.id}_${selectedDate}`];
+                const key = `${reg.id}_${selectedDate}`;
+                const currentStatus = localAttendances[key];
+                const justification = attendanceJustifications[key] || '';
                 const photoUrl = reg.photoUrl || reg.photo_url;
 
                 return (
-                  <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                    <div className="flex items-center space-x-3">
-                      {photoUrl ? (
-                        <img 
-                          src={photoUrl} 
-                          alt={reg.athleteName || reg.fullName} 
-                          className="w-10 h-10 rounded-xl object-cover border border-clubRed/30 flex-shrink-0"
+                  <div key={reg.id} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 space-y-3">
+                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                      <div className="flex items-center space-x-3">
+                        {photoUrl ? (
+                          <img 
+                            src={photoUrl} 
+                            alt={reg.athleteName || reg.fullName} 
+                            className="w-10 h-10 rounded-xl object-cover border border-clubRed/30 flex-shrink-0"
+                          />
+                        ) : (
+                          <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
+                            👤
+                          </div>
+                        )}
+                        <h3 className="font-bold text-gray-900 text-sm">
+                          {reg.athleteName || reg.athlete_name || reg.fullName}
+                        </h3>
+                      </div>
+
+                      <div className="flex items-center space-x-1.5 w-full sm:w-auto justify-end flex-wrap gap-y-1">
+                        <button
+                          type="button"
+                          onClick={() => handleSetAthleteStatus(reg.id, 'presente')}
+                          className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                            currentStatus === 'presente'
+                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                              : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                          }`}
+                        >
+                          ✓ Presente (P)
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSetAthleteStatus(reg.id, 'justificado')}
+                          className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                            currentStatus === 'justificado'
+                              ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                              : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                          }`}
+                        >
+                          FJ Justificada
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSetAthleteStatus(reg.id, 'injustificado')}
+                          className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                            currentStatus === 'injustificado'
+                              ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                              : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                          }`}
+                        >
+                          ✕ FNJ Não Justificada
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => handleSetAthleteStatus(reg.id, 'lesao')}
+                          className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                            currentStatus === 'lesao'
+                              ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
+                              : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
+                          }`}
+                        >
+                          🤕 Lesão (L)
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Caixa de Texto que abre apenas se for falta Justificada */}
+                    {currentStatus === 'justificado' && (
+                      <div className="pt-2 border-t border-gray-100 animate-in fade-in duration-200">
+                        <label className="block text-[11px] font-bold text-amber-800 mb-1">
+                          📝 Justificação da Falta:
+                        </label>
+                        <input
+                          type="text"
+                          placeholder="Escreva o motivo da falta justificada..."
+                          value={justification}
+                          onChange={(e) => handleJustificationChange(reg.id, e.target.value)}
+                          className="w-full p-2.5 border border-amber-300 rounded-xl text-xs bg-amber-50/50 focus:outline-none focus:ring-2 focus:ring-amber-500 text-gray-800"
                         />
-                      ) : (
-                        <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
-                          👤
-                        </div>
-                      )}
-                      <h3 className="font-bold text-gray-900 text-sm">
-                        {reg.athleteName || reg.athlete_name || reg.fullName}
-                      </h3>
-                    </div>
-
-                    <div className="flex items-center space-x-1.5 w-full sm:w-auto justify-end flex-wrap gap-y-1">
-                      <button
-                        type="button"
-                        onClick={() => handleSetAthleteStatus(reg.id, 'presente')}
-                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                          currentStatus === 'presente'
-                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
-                        }`}
-                      >
-                        ✓ Presente (P)
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSetAthleteStatus(reg.id, 'justificado')}
-                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                          currentStatus === 'justificado'
-                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
-                            : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
-                        }`}
-                      >
-                        FJ Justificada
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSetAthleteStatus(reg.id, 'injustificado')}
-                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                          currentStatus === 'injustificado'
-                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
-                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
-                        }`}
-                      >
-                        ✕ FNJ Não Justificada
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleSetAthleteStatus(reg.id, 'lesao')}
-                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
-                          currentStatus === 'lesao'
-                            ? 'bg-blue-600 text-white border-blue-600 shadow-sm'
-                            : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'
-                        }`}
-                      >
-                        🤕 Lesão (L)
-                      </button>
-                    </div>
+                      </div>
+                    )}
                   </div>
                 );
               });
@@ -1735,11 +1765,9 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: AULAS DE PAIS (STORMFIT / ADULTOS) COM CRIAÇÃO E GESTÃO */}
+        {/* SECÇÃO: AULAS DE PAIS (STORMFIT / ADULTOS) */}
         {activeTab === 'parentClasses' && (
           <div className="space-y-6">
-            
-            {/* Formulário para Criar Aula de Adultos / Pais */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <h2 className="font-bold text-gray-800 text-sm">🏋️ Agendar Nova Aula de Pais / Adultos</h2>
               <form onSubmit={handleCreateAdultClass} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1797,7 +1825,6 @@ export default function Dashboard({ onLogout }) {
               </form>
             </div>
 
-            {/* Listagem de Aulas de Adultos Agendadas */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <h2 className="font-bold text-gray-800 text-sm">📅 Aulas de Adultos Agendadas</h2>
               {(!adultClasses || adultClasses.length === 0) ? (
@@ -1849,7 +1876,6 @@ export default function Dashboard({ onLogout }) {
               )}
             </div>
 
-            {/* Listagem de Inscrições Stormfit (Cadastros gerais) */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <div className="flex justify-between items-center border-b border-gray-100 pb-3">
                 <div>
