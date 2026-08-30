@@ -1812,7 +1812,7 @@ export default function Dashboard({ onLogout }) {
                     className="w-full p-2.5 border rounded-xl text-xs bg-white"
                     required
                   />
-                  <span className="text-[10px] text-gray-400 block mt-0.5">Ex: 1 significa que abre 1 dia antes da aula. Quem tem pagamento mensal tem acesso automático imediato.</span>
+                  <span className="text-[10px] text-gray-400 block mt-0.5">Ex: 1 significa que abre 1 dia antes da aula. Quem tem pagamento mensal tem acesso imediato.</span>
                 </div>
                 <div className="sm:col-span-2 pt-2">
                   <button
@@ -1858,7 +1858,7 @@ export default function Dashboard({ onLogout }) {
                         <div className="pt-2 border-t border-gray-200 text-xs space-y-1">
                           <span className="font-bold text-gray-700 block">Inscritos ({enrolled.length}):</span>
                           {enrolled.length === 0 ? (
-                            <span className="text-gray-400 italic block">Nenhum adulto inscrito ainda. (Alunos com modalidade mensal inscrevem-se automaticamente)</span>
+                            <span className="text-gray-400 italic block">Nenhum adulto inscrito ainda.</span>
                           ) : (
                             <ul className="list-disc pl-4 space-y-0.5">
                               {enrolled.map((p, idx) => (
