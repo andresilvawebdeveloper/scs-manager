@@ -619,15 +619,22 @@ export function AppProvider({ children }) {
     const currentStatus = typeof current === 'object' ? current?.status : current;
     const newStatus = forcedStatus !== undefined ? forcedStatus : !currentStatus;
 
+    // Atualização imediata do estado local
     setEventAttendances((prev) => ({ ...prev, [key]: { status: newStatus } }));
+
     try {
-      await supabase.from('event_attendances').upsert({
+      const { error } = await supabase.from('event_attendances').upsert({
         event_id: String(eventId),
         athlete_id: String(athleteId),
         status: newStatus,
       }, { onConflict: 'event_id, athlete_id' });
+
+      if (error) {
+        console.error('Erro ao atualizar presença no evento na base de dados:', error.message);
+        await fetchEventAttendances();
+      }
     } catch (err) {
-      console.error('Erro na presença do evento:', err);
+      console.error('Erro crítico na presença do evento:', err);
     }
   };
 
