@@ -623,18 +623,25 @@ export function AppProvider({ children }) {
     setEventAttendances((prev) => ({ ...prev, [key]: { status: newStatus } }));
 
     try {
-      const { error } = await supabase.from('event_attendances').upsert({
+      const payload = {
         event_id: String(eventId),
         athlete_id: String(athleteId),
-        status: newStatus,
-      }, { onConflict: 'event_id, athlete_id' });
+        status: Boolean(newStatus),
+      };
+
+      const { data, error } = await supabase
+        .from('event_attendances')
+        .upsert(payload, { onConflict: 'event_id, athlete_id' })
+        .select();
 
       if (error) {
-        console.error('Erro ao atualizar presença no evento na base de dados:', error.message);
+        console.error('Erro detalhado do Supabase no upsert de presenças:', error.message);
         await fetchEventAttendances();
+      } else {
+        console.log('Presença sincronizada com sucesso no Supabase:', data);
       }
     } catch (err) {
-      console.error('Erro crítico na presença do evento:', err);
+      console.error('Erro crítico na submissão da presença:', err);
     }
   };
 
