@@ -2,12 +2,166 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../services/supabaseClient';
 
+function EventCard({ ev, registration, currentAthleteClassNorm, normalizeClassName }) {
+  const { eventAttendances, toggleEventAttendance } = useApp();
+
+  const attendanceRecord = eventAttendances && eventAttendances[`${ev.id}_${registration.id}`];
+  const initialStatus = typeof attendanceRecord === 'object' ? attendanceRecord?.status : attendanceRecord;
+
+  // Estado local para resposta imediata ao clique
+  const [localStatus, setLocalStatus] = useState(initialStatus);
+
+  // Sincronizar caso o estado global mude externamente
+  React.useEffect(() => {
+    setLocalStatus(initialStatus);
+  }, [initialStatus]);
+
+  const location = ev.location || ev.event_location || ev.place;
+  const eventTime = ev.time || ev.event_time || ev.startTime || ev.start_time;
+  const meetingTime = ev.meetingTime || ev.meeting_time || ev.pontoEncontro;
+
+  let classesList = [];
+  if (Array.isArray(ev.targetClasses)) classesList = ev.targetClasses;
+  else if (typeof ev.targetClasses === 'string') classesList = ev.targetClasses.split(',').map(c => c.trim());
+  else if (typeof ev.targetClass === 'string') classesList = ev.targetClass.split(',').map(c => c.trim());
+
+  return (
+    <div className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+      <div className="flex justify-between items-start border-b border-gray-100 pb-3">
+        <div>
+          <h3 className="font-bold text-gray-900 text-base">{ev.name || ev.title}</h3>
+          <p className="text-xs text-gray-500 mt-0.5">
+            📅 Data: <strong className="text-gray-800">{ev.date}</strong>
+          </p>
+        </div>
+        <span className="bg-emerald-50 text-emerald-700 font-bold text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider border border-emerald-100">
+          Convocado
+        </span>
+      </div>
+
+      <div className="space-y-2 pt-1 text-xs">
+        {/* LOCAL DO EVENTO */}
+        <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+          <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-0.5">
+            📍 Local do Evento:
+          </span>
+          <span className="text-gray-800 font-semibold">
+            {location ? location : 'A definir pelo treinador'}
+          </span>
+        </div>
+
+        {/* HORÁRIOS */}
+        <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
+          <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
+            ⏰ Horários Programados:
+          </span>
+          
+          {(eventTime || meetingTime) ? (
+            <div className="space-y-1.5 text-gray-800">
+              {eventTime && (
+                <p className="flex items-center space-x-1.5">
+                  <span className="font-medium text-gray-600">Início do Evento:</span>
+                  <strong className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{eventTime}</strong>
+                </p>
+              )}
+              {meetingTime && (
+                <p className="flex items-center space-x-1.5">
+                  <span className="font-medium text-gray-600">Ponto de Encontro:</span>
+                  <strong className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{meetingTime}</strong>
+                </p>
+              )}
+            </div>
+          ) : (
+            <ul className="list-disc list-inside text-gray-800 font-medium space-y-1">
+              {(ev.schedules && ev.schedules.length > 0 ? ev.schedules : ['Horário a confirmar pelo treinador']).map((sch, idx) => (
+                <li key={idx}>{sch}</li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* TURMAS ABRANGIDAS */}
+        {classesList.length > 0 && (
+          <div>
+            <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
+              Turmas Abrangidas:
+            </span>
+            <div className="flex flex-wrap gap-1">
+              {classesList.map((tc, idx) => {
+                const isMyClass = normalizeClassName(tc) === currentAthleteClassNorm;
+                return (
+                  <span 
+                    key={idx} 
+                    className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
+                      isMyClass 
+                        ? 'bg-red-50 text-clubRed border-red-200' 
+                        : 'bg-gray-50 text-gray-600 border-gray-200'
+                    }`}
+                  >
+                    {tc}
+                  </span>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* CONFIRMAÇÃO DE PRESENÇA */}
+      <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-red-50/40 p-3.5 rounded-xl border border-red-100">
+        <div>
+          <span className="text-xs font-bold text-gray-900 block">
+            O atleta vai estar presente?
+          </span>
+          <span className="text-[10px] text-gray-500 block">
+            Confirme a presença para o treinador organizar a equipa.
+          </span>
+        </div>
+
+        <div className="flex items-center space-x-2 w-full sm:w-auto">
+          <button
+            type="button"
+            onClick={() => {
+              setLocalStatus(true);
+              if (toggleEventAttendance) {
+                toggleEventAttendance(ev.id, registration.id, true);
+              }
+            }}
+            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
+              localStatus === true
+                ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
+            }`}
+          >
+            <span>✓ Vou / Estará Presente</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setLocalStatus(false);
+              if (toggleEventAttendance) {
+                toggleEventAttendance(ev.id, registration.id, false);
+              }
+            }}
+            className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
+              localStatus === false
+                ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-50'
+            }`}
+          >
+            <span>✕ Não Vou / Ausente</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function ParentDashboard({ registration, onLogout }) {
   const { 
     updateRegistrationByParent, 
     events,
-    eventAttendances,
-    toggleEventAttendance,
     messages,
     sendMessage
   } = useApp();
@@ -505,149 +659,15 @@ export default function ParentDashboard({ registration, onLogout }) {
                 <p className="text-xs text-gray-400">Não existem convocações ativas para a turma {athleteClass} de momento.</p>
               </div>
             ) : (
-              myClassEvents.map((ev) => {
-                const isAttending = !!(eventAttendances && eventAttendances[`${ev.id}_${registration.id}`]);
-
-                const location = ev.location || ev.event_location || ev.place;
-                const eventTime = ev.time || ev.event_time || ev.startTime || ev.start_time;
-                const meetingTime = ev.meetingTime || ev.meeting_time || ev.pontoEncontro;
-
-                let classesList = [];
-                if (Array.isArray(ev.targetClasses)) classesList = ev.targetClasses;
-                else if (typeof ev.targetClasses === 'string') classesList = ev.targetClasses.split(',').map(c => c.trim());
-                else if (typeof ev.targetClass === 'string') classesList = ev.targetClass.split(',').map(c => c.trim());
-
-                return (
-                  <div key={ev.id} className="bg-white p-5 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                    <div className="flex justify-between items-start border-b border-gray-100 pb-3">
-                      <div>
-                        <h3 className="font-bold text-gray-900 text-base">{ev.name || ev.title}</h3>
-                        <p className="text-xs text-gray-500 mt-0.5">
-                          📅 Data: <strong className="text-gray-800">{ev.date}</strong>
-                        </p>
-                      </div>
-                      <span className="bg-emerald-50 text-emerald-700 font-bold text-[10px] px-2.5 py-1 rounded-full uppercase tracking-wider border border-emerald-100">
-                        Convocado
-                      </span>
-                    </div>
-
-                    <div className="space-y-2 pt-1 text-xs">
-                      {/* LOCAL DO EVENTO */}
-                      <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                        <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-0.5">
-                          📍 Local do Evento:
-                        </span>
-                        <span className="text-gray-800 font-semibold">
-                          {location ? location : 'A definir pelo treinador'}
-                        </span>
-                      </div>
-
-                      {/* HORÁRIOS */}
-                      <div className="bg-gray-50 p-3 rounded-xl border border-gray-100">
-                        <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
-                          ⏰ Horários Programados:
-                        </span>
-                        
-                        {(eventTime || meetingTime) ? (
-                          <div className="space-y-1.5 text-gray-800">
-                            {eventTime && (
-                              <p className="flex items-center space-x-1.5">
-                                <span className="font-medium text-gray-600">Início do Evento:</span>
-                                <strong className="text-blue-700 bg-blue-50 px-2 py-0.5 rounded border border-blue-100">{eventTime}</strong>
-                              </p>
-                            )}
-                            {meetingTime && (
-                              <p className="flex items-center space-x-1.5">
-                                <span className="font-medium text-gray-600">Ponto de Encontro:</span>
-                                <strong className="text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100">{meetingTime}</strong>
-                              </p>
-                            )}
-                          </div>
-                        ) : (
-                          <ul className="list-disc list-inside text-gray-800 font-medium space-y-1">
-                            {(ev.schedules && ev.schedules.length > 0 ? ev.schedules : ['Horário a confirmar pelo treinador']).map((sch, idx) => (
-                              <li key={idx}>{sch}</li>
-                            ))}
-                          </ul>
-                        )}
-                      </div>
-
-                      {/* TURMAS ABRANGIDAS */}
-                      {classesList.length > 0 && (
-                        <div>
-                          <span className="text-gray-400 font-semibold uppercase text-[10px] block mb-1">
-                            Turmas Abrangidas:
-                          </span>
-                          <div className="flex flex-wrap gap-1">
-                            {classesList.map((tc, idx) => {
-                              const isMyClass = normalizeClassName(tc) === currentAthleteClassNorm;
-                              return (
-                                <span 
-                                  key={idx} 
-                                  className={`px-2 py-0.5 rounded-md text-[11px] font-bold border ${
-                                    isMyClass 
-                                      ? 'bg-red-50 text-clubRed border-red-200' 
-                                      : 'bg-gray-50 text-gray-600 border-gray-200'
-                                  }`}
-                                >
-                                  {tc}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-
-                    {/* CONFIRMAÇÃO DE PRESENÇA */}
-                    <div className="pt-3 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 bg-red-50/40 p-3.5 rounded-xl border border-red-100">
-                      <div>
-                        <span className="text-xs font-bold text-gray-900 block">
-                          O atleta vai estar presente?
-                        </span>
-                        <span className="text-[10px] text-gray-500 block">
-                          Confirme a presença para o treinador organizar a equipa.
-                        </span>
-                      </div>
-
-                      <div className="flex items-center space-x-2 w-full sm:w-auto">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!isAttending && toggleEventAttendance) {
-                              toggleEventAttendance(ev.id, registration.id);
-                            }
-                          }}
-                          className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
-                            isAttending
-                              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                              : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
-                          }`}
-                        >
-                          <span>✓ Vou / Estará Presente</span>
-                        </button>
-
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (isAttending && toggleEventAttendance) {
-                              toggleEventAttendance(ev.id, registration.id);
-                            }
-                          }}
-                          className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
-                            !isAttending
-                              ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
-                              : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-50'
-                          }`}
-                        >
-                          <span>✕ Não Vou / Ausente</span>
-                        </button>
-                      </div>
-                    </div>
-
-                  </div>
-                );
-              })
+              myClassEvents.map((ev) => (
+                <EventCard 
+                  key={ev.id} 
+                  ev={ev} 
+                  registration={registration} 
+                  currentAthleteClassNorm={currentAthleteClassNorm} 
+                  normalizeClassName={normalizeClassName} 
+                />
+              ))
             )}
           </div>
         )}

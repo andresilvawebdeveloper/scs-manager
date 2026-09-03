@@ -615,11 +615,9 @@ export function AppProvider({ children }) {
 
   const toggleEventAttendance = async (eventId, athleteId, forcedStatus = undefined) => {
     const key = `${eventId}_${athleteId}`;
-    const current = eventAttendances[key];
-    const currentStatus = typeof current === 'object' ? current?.status : current;
-    const newStatus = forcedStatus !== undefined ? forcedStatus : !currentStatus;
+    const newStatus = forcedStatus !== undefined ? forcedStatus : true;
 
-    // Atualização imediata do estado local
+    // Atualização otimista e imediata do estado local
     setEventAttendances((prev) => ({ ...prev, [key]: { status: newStatus } }));
 
     try {
@@ -629,16 +627,12 @@ export function AppProvider({ children }) {
         status: Boolean(newStatus),
       };
 
-      const { data, error } = await supabase
+      const { error } = await supabase
         .from('event_attendances')
-        .upsert(payload, { onConflict: 'event_id, athlete_id' })
-        .select();
+        .upsert(payload, { onConflict: 'event_id,athlete_id' });
 
       if (error) {
-        console.error('Erro detalhado do Supabase no upsert de presenças:', error.message);
-        await fetchEventAttendances();
-      } else {
-        console.log('Presença sincronizada com sucesso no Supabase:', data);
+        console.error('Erro no Supabase ao atualizar presença:', error.message);
       }
     } catch (err) {
       console.error('Erro crítico na submissão da presença:', err);
