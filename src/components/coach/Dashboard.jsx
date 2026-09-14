@@ -43,6 +43,7 @@ export default function Dashboard({ onLogout }) {
     }
     fetchCoachAttendances();
     fetchAthleteAttendances();
+    fetchParentAttendances();
   }, []);
 
   const [activeTab, setActiveTab] = useState('accepted');
@@ -56,6 +57,9 @@ export default function Dashboard({ onLogout }) {
 
   const [coachAttendances, setCoachAttendances] = useState({});
   const [coachSelectedDate, setCoachSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+
+  const [parentAttendances, setParentAttendances] = useState({});
+  const [parentSelectedDate, setParentSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
@@ -138,6 +142,22 @@ export default function Dashboard({ onLogout }) {
     }
   };
 
+  const fetchParentAttendances = async () => {
+    try {
+      const { data, error } = await supabase.from('parent_attendances').select('*');
+      if (error) throw error;
+      if (data) {
+        const map = {};
+        data.forEach(item => {
+          map[`${item.parent_id || item.parentId}_${item.date}`] = item.status;
+        });
+        setParentAttendances(map);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar presenças de pais/adultos:", err.message);
+    }
+  };
+
   const handleSetCoachStatus = async (coachName, targetStatus) => {
     const key = `${coachName}_${coachSelectedDate}`;
     const currentStatus = coachAttendances[key];
@@ -164,6 +184,36 @@ export default function Dashboard({ onLogout }) {
       }
     } catch (err) {
       console.error("Erro ao atualizar presença do treinador na BD:", err.message);
+      alert("Erro ao guardar presença na base de dados: " + err.message);
+    }
+  };
+
+  const handleSetParentStatus = async (parentId, targetStatus) => {
+    const key = `${parentId}_${parentSelectedDate}`;
+    const currentStatus = parentAttendances[key];
+    const newStatus = currentStatus === targetStatus ? null : targetStatus;
+
+    setParentAttendances((prev) => ({
+      ...prev,
+      [key]: newStatus
+    }));
+
+    try {
+      if (newStatus === null) {
+        await supabase
+          .from('parent_attendances')
+          .delete()
+          .eq('parent_id', parentId)
+          .eq('date', parentSelectedDate);
+      } else {
+        await supabase
+          .from('parent_attendances')
+          .upsert([
+            { parent_id: parentId, date: parentSelectedDate, status: newStatus }
+          ], { onConflict: 'parent_id,date' });
+      }
+    } catch (err) {
+      console.error("Erro ao atualizar presença do adulto/pai na BD:", err.message);
       alert("Erro ao guardar presença na base de dados: " + err.message);
     }
   };
@@ -829,6 +879,87 @@ export default function Dashboard({ onLogout }) {
     saveAs(new Blob([buffer]), `Presencas_Treinadores_SCS_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  const exportParentAttendancesToExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Presenças Pais');
+
+    worksheet.getColumn(1).width = 6;
+    worksheet.getColumn(2).width = 25;
+
+    const months = [
+      { name: 'SETEMBRO', days: [2, 4, 7, 9, 11, 14, 16, 18, 21, 23, 25, 28, 30] },
+      { name: 'OUTUBRO', days: [2, 5, 7, 9, 12, 14, 16, 19, 21, 23, 26, 28, 30] },
+      { name: 'NOVEMBRO', days: [2, 4, 6, 9, 11, 13, 16, 18, 20, 23, 25, 27, 30] },
+      { name: 'DEZEMBRO', days: [2, 4, 7, 9, 11, 14, 16, 18, 21, 23, 25, 28] }
+    ];
+
+    let startCol = 3;
+    months.forEach((m) => {
+      const endCol = startCol + m.days.length - 1;
+      worksheet.mergeCells(1, startCol, 1, endCol);
+      const cell = worksheet.getCell(1, startCol);
+      cell.value = m.name;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.font = { name: 'Arial', size: 10, bold: true };
+
+      m.days.forEach((day, idx) => {
+        const colIdx = startCol + idx;
+        worksheet.getColumn(colIdx).width = 4.5;
+        const dayCell = worksheet.getCell(2, colIdx);
+        dayCell.value = day;
+        dayCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        dayCell.font = { name: 'Arial', size: 9 };
+      });
+
+      startCol = endCol + 1;
+    });
+
+    let currentRow = 3;
+    const sortedParents = [...acceptedAdultsList].sort((a, b) => {
+      const nameA = (a.full_name || a.fullName || '').toLowerCase();
+      const nameB = (b.full_name || b.fullName || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+
+    sortedParents.forEach((adult, index) => {
+      const numCell = worksheet.getCell(currentRow, 1);
+      numCell.value = index + 1;
+      numCell.alignment = { horizontal: 'center' };
+      numCell.font = { name: 'Arial', size: 9 };
+
+      const nameCell = worksheet.getCell(currentRow, 2);
+      nameCell.value = adult.full_name || adult.fullName;
+      nameCell.font = { name: 'Arial', size: 9 };
+
+      let colTracker = 3;
+      months.forEach((m) => {
+        m.days.forEach((day) => {
+          const monthNum = m.name === 'SETEMBRO' ? '09' : m.name === 'OUTUBRO' ? '10' : m.name === 'NOVEMBRO' ? '11' : '12';
+          const dayStr = day < 10 ? `0${day}` : `${day}`;
+          const yearStr = new Date().getFullYear();
+          const dateKey = `${yearStr}-${monthNum}-${dayStr}`;
+
+          const status = parentAttendances[`${adult.id}_${dateKey}`];
+          const pCell = worksheet.getCell(currentRow, colTracker);
+
+          if (status === 'presente') pCell.value = 'P';
+          else if (status === 'justificado') pCell.value = 'FJ';
+          else if (status === 'injustificado') pCell.value = 'FNJ';
+
+          pCell.alignment = { horizontal: 'center' };
+          pCell.font = { name: 'Arial', size: 8 };
+
+          colTracker++;
+        });
+      });
+
+      currentRow++;
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `Presencas_Pais_SCS_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 pb-12">
       
@@ -918,6 +1049,7 @@ export default function Dashboard({ onLogout }) {
                 if (fetchAdultClasses) fetchAdultClasses();
                 fetchCoachAttendances();
                 fetchAthleteAttendances();
+                fetchParentAttendances();
               }}
               className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl font-medium transition"
               title="Atualizar lista de inscrições"
@@ -2272,6 +2404,112 @@ export default function Dashboard({ onLogout }) {
                   </button>
                 </div>
               </form>
+            </div>
+
+            {/* SECÇÃO DE MARCAÇÃO DE PRESENÇAS DA AULA DOS PAIS */}
+            <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
+              <div className="flex flex-col sm:flex-row justify-between items-center gap-4 border-b border-gray-100 pb-3">
+                <div>
+                  <h2 className="font-bold text-gray-800 text-sm">📋 Marcar Presenças da Aula dos Pais</h2>
+                  <p className="text-xs text-gray-500">Controlo de presenças dos adultos/pais inscritos sincronizado na base de dados</p>
+                </div>
+
+                <div className="flex flex-col sm:flex-row items-center gap-2 w-full sm:w-auto">
+                  <input
+                    type="date"
+                    value={parentSelectedDate}
+                    onChange={(e) => setParentSelectedDate(e.target.value)}
+                    className="p-2.5 border border-gray-300 rounded-xl text-xs font-medium bg-gray-50 w-full sm:w-auto"
+                  />
+                  <button
+                    onClick={exportParentAttendancesToExcel}
+                    className="w-full sm:w-auto px-4 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow flex items-center justify-center space-x-1.5"
+                  >
+                    <span>📊 Exportar Presenças Pais (Excel)</span>
+                  </button>
+                </div>
+              </div>
+
+              {acceptedAdultsList.length === 0 ? (
+                <div className="text-center py-6 text-xs text-gray-400">
+                  Não existem adultos/pais aceites para gerir presenças.
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {acceptedAdultsList
+                    .sort((a, b) => {
+                      const nameA = (a.full_name || a.fullName || '').toLowerCase();
+                      const nameB = (b.full_name || b.fullName || '').toLowerCase();
+                      return nameA.localeCompare(nameB);
+                    })
+                    .map((adult) => {
+                      const key = `${adult.id}_${parentSelectedDate}`;
+                      const currentStatus = parentAttendances[key];
+                      const name = adult.full_name || adult.fullName;
+                      const photoUrl = adult.photoUrl || adult.photo_url;
+
+                      return (
+                        <div key={adult.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                          <div className="flex items-center space-x-3">
+                            {photoUrl ? (
+                              <img 
+                                src={photoUrl} 
+                                alt={name} 
+                                className="w-10 h-10 rounded-xl object-cover border border-clubRed/30 flex-shrink-0"
+                              />
+                            ) : (
+                              <div className="w-10 h-10 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
+                                <svg className="w-5 h-5 text-purple-700" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                              </div>
+                            )}
+                            <div>
+                              <h3 className="font-bold text-gray-900 text-sm">{name}</h3>
+                              <p className="text-[11px] text-gray-500">Tel: {adult.phone || 'N/D'}</p>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center space-x-2 w-full sm:w-auto justify-end flex-wrap gap-y-1">
+                            <button
+                              type="button"
+                              onClick={() => handleSetParentStatus(adult.id, 'presente')}
+                              className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                                currentStatus === 'presente'
+                                  ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                                  : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                              }`}
+                            >
+                              ✓ Presente (P)
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleSetParentStatus(adult.id, 'justificado')}
+                              className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                                currentStatus === 'justificado'
+                                  ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                              }`}
+                            >
+                              FJ Justificada
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => handleSetParentStatus(adult.id, 'injustificado')}
+                              className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                                currentStatus === 'injustificado'
+                                  ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                                  : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                              }`}
+                            >
+                              ✕ FNJ Não Justificada
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                </div>
+              )}
             </div>
 
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
