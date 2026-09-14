@@ -41,9 +41,11 @@ export default function Dashboard({ onLogout }) {
     if (fetchAdultClasses) {
       fetchAdultClasses();
     }
+    fetchCoachAttendances();
+    fetchAthleteAttendances();
   }, []);
 
-  const [activeTab, setActiveTab] = useState('pending');
+  const [activeTab, setActiveTab] = useState('accepted');
   const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
   const [selectedClassFilter, setSelectedClassFilter] = useState('Spark');
   const [selectedClasses, setSelectedClasses] = useState({});
@@ -51,6 +53,9 @@ export default function Dashboard({ onLogout }) {
   const [expandedAthletes, setExpandedAthletes] = useState({});
   const [expandedAdults, setExpandedAdults] = useState({});
   const [expandedEventId, setExpandedEventId] = useState(null);
+
+  const [coachAttendances, setCoachAttendances] = useState({});
+  const [coachSelectedDate, setCoachSelectedDate] = useState(new Date().toISOString().split('T')[0]);
 
   const [newEventName, setNewEventName] = useState('');
   const [newEventDate, setNewEventDate] = useState('');
@@ -60,7 +65,6 @@ export default function Dashboard({ onLogout }) {
   const [newEventClasses, setNewEventClasses] = useState(['Flame']);
   const [newEventCoaches, setNewEventCoaches] = useState([]);
 
-  // Estados para a Criação de Aulas de Adultos / Pais
   const [newAdultClassDate, setNewAdultClassDate] = useState('');
   const [newAdultClassTime, setNewAdultClassTime] = useState('');
   const [newAdultClassMaxSeats, setNewAdultClassMaxSeats] = useState(15);
@@ -74,17 +78,15 @@ export default function Dashboard({ onLogout }) {
   const [chatText, setChatText] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
 
-  // Estados para Gestão do Perfil do Treinador
   const [profileEmail, setProfileEmail] = useState(currentCoach?.email || '');
   const [profilePassword, setProfilePassword] = useState('');
   const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
-  // Estado do Modal/Popup de Novas Respostas a Eventos
   const [showEventResponsesModal, setShowEventResponsesModal] = useState(false);
   const [newResponsesSummary, setNewResponsesSummary] = useState([]);
 
-  // Estados para Justificações de Faltas
   const [attendanceJustifications, setAttendanceJustifications] = useState({});
+  const [localAttendances, setLocalAttendances] = useState({});
 
   useEffect(() => {
     if (currentCoach?.email) {
@@ -92,7 +94,80 @@ export default function Dashboard({ onLogout }) {
     }
   }, [currentCoach]);
 
-  // Lógica de verificação de novas respostas a eventos
+  useEffect(() => {
+    if (attendances) {
+      setLocalAttendances(attendances);
+    }
+  }, [attendances]);
+
+  const fetchAthleteAttendances = async () => {
+    try {
+      const { data, error } = await supabase.from('attendances').select('*');
+      if (error) throw error;
+      if (data) {
+        const attMap = {};
+        const justMap = {};
+        data.forEach(item => {
+          const key = `${item.athlete_id || item.athleteId}_${item.date}`;
+          attMap[key] = item.status;
+          if (item.justification) {
+            justMap[key] = item.justification;
+          }
+        });
+        setLocalAttendances(prev => ({ ...prev, ...attMap }));
+        setAttendanceJustifications(prev => ({ ...prev, ...justMap }));
+      }
+    } catch (err) {
+      console.error("Erro ao carregar presenças de atletas:", err.message);
+    }
+  };
+
+  const fetchCoachAttendances = async () => {
+    try {
+      const { data, error } = await supabase.from('coach_attendances').select('*');
+      if (error) throw error;
+      if (data) {
+        const map = {};
+        data.forEach(item => {
+          map[`${item.coach_name}_${item.date}`] = item.status;
+        });
+        setCoachAttendances(map);
+      }
+    } catch (err) {
+      console.error("Erro ao carregar presenças de treinadores:", err.message);
+    }
+  };
+
+  const handleSetCoachStatus = async (coachName, targetStatus) => {
+    const key = `${coachName}_${coachSelectedDate}`;
+    const currentStatus = coachAttendances[key];
+    const newStatus = currentStatus === targetStatus ? null : targetStatus;
+
+    setCoachAttendances((prev) => ({
+      ...prev,
+      [key]: newStatus
+    }));
+
+    try {
+      if (newStatus === null) {
+        await supabase
+          .from('coach_attendances')
+          .delete()
+          .eq('coach_name', coachName)
+          .eq('date', coachSelectedDate);
+      } else {
+        await supabase
+          .from('coach_attendances')
+          .upsert([
+            { coach_name: coachName, date: coachSelectedDate, status: newStatus }
+          ], { onConflict: 'coach_name,date' });
+      }
+    } catch (err) {
+      console.error("Erro ao atualizar presença do treinador na BD:", err.message);
+      alert("Erro ao guardar presença na base de dados: " + err.message);
+    }
+  };
+
   useEffect(() => {
     if (!events || events.length === 0 || !eventAttendances) return;
 
@@ -148,13 +223,6 @@ export default function Dashboard({ onLogout }) {
 
   const [acceptedSubView, setAcceptedSubView] = useState('athletes');
   const [selectedBirthdayMonth, setSelectedBirthdayMonth] = useState('all');
-  const [localAttendances, setLocalAttendances] = useState({});
-
-  useEffect(() => {
-    if (attendances) {
-      setLocalAttendances(attendances);
-    }
-  }, [attendances]);
 
   const pendingList = registrations.filter((r) => r.status === 'pending');
   const acceptedList = registrations.filter((r) => r.status === 'accepted');
@@ -185,10 +253,11 @@ export default function Dashboard({ onLogout }) {
     setExpandedEventId((prev) => (prev === eventId ? null : eventId));
   };
 
-  const handleSetAthleteStatus = (athleteId, targetStatus) => {
+  const handleSetAthleteStatus = async (athleteId, targetStatus) => {
     const key = `${athleteId}_${selectedDate}`;
     const currentStatus = localAttendances[key];
     const newStatus = currentStatus === targetStatus ? null : targetStatus;
+    const currentJustification = attendanceJustifications[key] || null;
 
     setLocalAttendances((prev) => ({
       ...prev,
@@ -198,14 +267,54 @@ export default function Dashboard({ onLogout }) {
     if (toggleAttendance) {
       toggleAttendance(athleteId, selectedDate, newStatus);
     }
+
+    try {
+      if (newStatus === null) {
+        await supabase
+          .from('attendances')
+          .delete()
+          .eq('athlete_id', athleteId)
+          .eq('date', selectedDate);
+      } else {
+        await supabase
+          .from('attendances')
+          .upsert([
+            { 
+              athlete_id: athleteId, 
+              date: selectedDate, 
+              status: newStatus, 
+              justification: newStatus === 'justificado' ? currentJustification : null 
+            }
+          ], { onConflict: 'athlete_id,date' });
+      }
+    } catch (err) {
+      console.error("Erro ao sincronizar presença na BD:", err.message);
+    }
   };
 
-  const handleJustificationChange = (athleteId, text) => {
+  const handleJustificationChange = async (athleteId, text) => {
     const key = `${athleteId}_${selectedDate}`;
     setAttendanceJustifications((prev) => ({
       ...prev,
       [key]: text
     }));
+
+    const currentStatus = localAttendances[key] || 'justificado';
+
+    try {
+      await supabase
+        .from('attendances')
+        .upsert([
+          { 
+            athlete_id: athleteId, 
+            date: selectedDate, 
+            status: currentStatus, 
+            justification: text 
+          }
+        ], { onConflict: 'athlete_id,date' });
+    } catch (err) {
+      console.error("Erro ao guardar justificação na BD:", err.message);
+    }
   };
 
   const handleAcceptWithClass = async (regId) => {
@@ -511,7 +620,7 @@ export default function Dashboard({ onLogout }) {
     (m) => chatTarget === 'all' ? m.recipientEmail === 'all' : (m.recipientEmail === chatTarget || m.senderEmail === chatTarget || m.recipient_email === chatTarget)
   );
 
-  const groupedAcceptedAthletes = acceptedList.reduce((acc, athlete) => {
+  const rawGroupedAcceptedAthletes = acceptedList.reduce((acc, athlete) => {
     const className = athlete.assignedClass || athlete.assigned_class || 'Flame';
     if (!acc[className]) {
       acc[className] = [];
@@ -519,6 +628,24 @@ export default function Dashboard({ onLogout }) {
     acc[className].push(athlete);
     return acc;
   }, {});
+
+  const classOrder = ['Spark', 'Flame', 'Fusion', 'Thunder', 'Firestorm'];
+  const allClassKeys = Object.keys(rawGroupedAcceptedAthletes);
+  const sortedClassKeys = [
+    ...classOrder.filter(c => allClassKeys.includes(c)),
+    ...allClassKeys.filter(c => !classOrder.includes(c))
+  ];
+
+  const groupedAcceptedAthletes = {};
+  sortedClassKeys.forEach((className) => {
+    const athletes = rawGroupedAcceptedAthletes[className];
+    const sortedAthletes = [...athletes].sort((a, b) => {
+      const nameA = (a.athleteName || a.athlete_name || a.fullName || '').toLowerCase();
+      const nameB = (b.athleteName || b.athlete_name || b.fullName || '').toLowerCase();
+      return nameA.localeCompare(nameB);
+    });
+    groupedAcceptedAthletes[className] = sortedAthletes;
+  });
 
   const monthNames = [
     'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
@@ -627,6 +754,81 @@ export default function Dashboard({ onLogout }) {
     saveAs(new Blob([buffer]), `Presencas_SCS_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
+  const exportCoachAttendancesToExcel = async () => {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Presenças Treinadores');
+
+    worksheet.getColumn(1).width = 6;
+    worksheet.getColumn(2).width = 25;
+
+    const months = [
+      { name: 'SETEMBRO', days: [2, 4, 7, 9, 11, 14, 16, 18, 21, 23, 25, 28, 30] },
+      { name: 'OUTUBRO', days: [2, 5, 7, 9, 12, 14, 16, 19, 21, 23, 26, 28, 30] },
+      { name: 'NOVEMBRO', days: [2, 4, 6, 9, 11, 13, 16, 18, 20, 23, 25, 27, 30] },
+      { name: 'DEZEMBRO', days: [2, 4, 7, 9, 11, 14, 16, 18, 21, 23, 25, 28] }
+    ];
+
+    let startCol = 3;
+    months.forEach((m) => {
+      const endCol = startCol + m.days.length - 1;
+      worksheet.mergeCells(1, startCol, 1, endCol);
+      const cell = worksheet.getCell(1, startCol);
+      cell.value = m.name;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.font = { name: 'Arial', size: 10, bold: true };
+
+      m.days.forEach((day, idx) => {
+        const colIdx = startCol + idx;
+        worksheet.getColumn(colIdx).width = 4.5;
+        const dayCell = worksheet.getCell(2, colIdx);
+        dayCell.value = day;
+        dayCell.alignment = { horizontal: 'center', vertical: 'middle' };
+        dayCell.font = { name: 'Arial', size: 9 };
+      });
+
+      startCol = endCol + 1;
+    });
+
+    let currentRow = 3;
+    availableCoaches.forEach((coachName, index) => {
+      const numCell = worksheet.getCell(currentRow, 1);
+      numCell.value = index + 1;
+      numCell.alignment = { horizontal: 'center' };
+      numCell.font = { name: 'Arial', size: 9 };
+
+      const nameCell = worksheet.getCell(currentRow, 2);
+      nameCell.value = coachName;
+      nameCell.font = { name: 'Arial', size: 9 };
+
+      let colTracker = 3;
+      months.forEach((m) => {
+        m.days.forEach((day) => {
+          const monthNum = m.name === 'SETEMBRO' ? '09' : m.name === 'OUTUBRO' ? '10' : m.name === 'NOVEMBRO' ? '11' : '12';
+          const dayStr = day < 10 ? `0${day}` : `${day}`;
+          const yearStr = new Date().getFullYear();
+          const dateKey = `${yearStr}-${monthNum}-${dayStr}`;
+
+          const status = coachAttendances[`${coachName}_${dateKey}`];
+          const pCell = worksheet.getCell(currentRow, colTracker);
+
+          if (status === 'presente') pCell.value = 'P';
+          else if (status === 'justificado') pCell.value = 'FJ';
+          else if (status === 'injustificado') pCell.value = 'FNJ';
+
+          pCell.alignment = { horizontal: 'center' };
+          pCell.font = { name: 'Arial', size: 8 };
+
+          colTracker++;
+        });
+      });
+
+      currentRow++;
+    });
+
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), `Presencas_Treinadores_SCS_${new Date().toISOString().split('T')[0]}.xlsx`);
+  };
+
   return (
     <div className="min-h-screen bg-gray-100 pb-12">
       
@@ -714,6 +916,8 @@ export default function Dashboard({ onLogout }) {
                 if (fetchRegistrations) fetchRegistrations();
                 if (fetchAdultRegistrations) fetchAdultRegistrations();
                 if (fetchAdultClasses) fetchAdultClasses();
+                fetchCoachAttendances();
+                fetchAthleteAttendances();
               }}
               className="text-xs bg-white/10 hover:bg-white/20 text-white px-3 py-2 rounded-xl font-medium transition"
               title="Atualizar lista de inscrições"
@@ -772,20 +976,12 @@ export default function Dashboard({ onLogout }) {
         </div>
       </div>
 
-      {/* Tabs */}
+      {/* Tabs (Removido o botão "Pendentes" daqui, restam 7 colunas) */}
       <div className="max-w-4xl mx-auto px-4 mt-6">
         <div className="grid grid-cols-7 gap-1 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-200 text-center">
           <button
-            onClick={() => { setActiveTab('pending'); fetchRegistrations && fetchRegistrations(); fetchAdultRegistrations && fetchAdultRegistrations(); }}
-            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
-              activeTab === 'pending' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
-            }`}
-          >
-            Pendentes ({pendingList.length + pendingAdultsList.length})
-          </button>
-          <button
             onClick={() => setActiveTab('accepted')}
-            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
+            className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
               activeTab === 'accepted' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -793,15 +989,23 @@ export default function Dashboard({ onLogout }) {
           </button>
           <button
             onClick={() => setActiveTab('attendance')}
-            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
+            className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
               activeTab === 'attendance' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
             Presenças
           </button>
           <button
+            onClick={() => setActiveTab('coachAttendance')}
+            className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
+              activeTab === 'coachAttendance' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
+            }`}
+          >
+            Treinadores
+          </button>
+          <button
             onClick={() => setActiveTab('events')}
-            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
+            className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
               activeTab === 'events' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -809,7 +1013,7 @@ export default function Dashboard({ onLogout }) {
           </button>
           <button
             onClick={() => { setActiveTab('parentClasses'); fetchAdultRegistrations && fetchAdultRegistrations(); fetchAdultClasses && fetchAdultClasses(); }}
-            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
+            className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
               activeTab === 'parentClasses' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -817,7 +1021,7 @@ export default function Dashboard({ onLogout }) {
           </button>
           <button
             onClick={() => setActiveTab('communication')}
-            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
+            className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
               activeTab === 'communication' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -825,7 +1029,7 @@ export default function Dashboard({ onLogout }) {
           </button>
           <button
             onClick={() => setActiveTab('profile')}
-            className={`py-2 text-[10px] sm:text-xs font-bold rounded-xl transition-all ${
+            className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
               activeTab === 'profile' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
@@ -836,7 +1040,7 @@ export default function Dashboard({ onLogout }) {
 
       <main className="max-w-4xl mx-auto px-4 mt-6">
         
-        {/* SECÇÃO: PENDENTES */}
+        {/* SECÇÃO: PENDENTES (Mantida por compatibilidade caso acedida programaticamente, mas reposicionada ou gerida) */}
         {activeTab === 'pending' && (
           <div className="space-y-6">
             <div className="space-y-4">
@@ -1005,9 +1209,175 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: ATLETAS ACEITES */}
+        {/* SECÇÃO: ATLETAS ACEITES (Com as Inscrições Pendentes colocadas no início da página) */}
         {activeTab === 'accepted' && (
           <div className="space-y-6">
+            
+            {/* INÍCIO DA PÁGINA DE ATLETAS: Secção de Pendentes Integrada */}
+            <div className="space-y-6 bg-amber-50/40 p-5 rounded-2xl border border-amber-200/60 mb-6">
+              <div className="flex justify-between items-center border-b border-amber-200 pb-3">
+                <div className="flex items-center space-x-2">
+                  <span className="text-lg">⏳</span>
+                  <div>
+                    <h2 className="font-bold text-gray-900 text-sm">Fichas de Inscrição Pendentes (Validação Necessária)</h2>
+                    <p className="text-[11px] text-gray-500">Atletas e adultos a aguardar aprovação</p>
+                  </div>
+                </div>
+                <button 
+                  onClick={() => {
+                    if (fetchRegistrations) fetchRegistrations();
+                    if (fetchAdultRegistrations) fetchAdultRegistrations();
+                  }}
+                  className="text-xs text-clubRed font-semibold hover:underline bg-white px-3 py-1.5 rounded-lg border border-amber-200 shadow-2xs"
+                >
+                  🔄 Recarregar Pendentes
+                </button>
+              </div>
+
+              {pendingList.length === 0 && pendingAdultsList.length === 0 ? (
+                <div className="bg-white p-4 rounded-xl border border-gray-200 text-center">
+                  <p className="text-xs text-gray-400">Não existem inscrições pendentes de momento.</p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  {pendingList.map((reg) => {
+                    const name = reg.athleteName || reg.athlete_name || reg.fullName;
+                    const birth = reg.birthDate || reg.birth_date;
+                    const cc = reg.athleteCC || reg.athlete_cc;
+                    const parent = reg.parentName || reg.parent_name;
+                    const parentCc = reg.parentCC || reg.parent_cc;
+                    const photoUrl = reg.photoUrl || reg.photo_url;
+
+                    return (
+                      <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-amber-200 space-y-4">
+                        <div className="flex items-center space-x-4">
+                          {photoUrl ? (
+                            <img 
+                              src={photoUrl} 
+                              alt={name} 
+                              className="w-14 h-14 rounded-2xl object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
+                            />
+                          ) : (
+                            <div className="w-14 h-14 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0">
+                              👤
+                            </div>
+                          )}
+                          <div>
+                            <div className="flex items-center space-x-2">
+                              <h3 className="font-bold text-gray-900 text-base">{name}</h3>
+                              <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">Atleta Pendente</span>
+                            </div>
+                            <p className="text-xs text-gray-500">Nascimento: {birth} | Sexo: {reg.gender} | CC: {cc}</p>
+                          </div>
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
+                          <div>
+                            <span className="text-gray-400 block mb-0.5">Encarregado de Educação</span>
+                            <strong className="text-gray-800">{parent}</strong> (CC: {parentCc})
+                          </div>
+                          <div>
+                            <span className="text-gray-400 block mb-0.5">Telemóvel e Email</span>
+                            <strong className="text-gray-800">{reg.phone}</strong>
+                            <span className="block text-gray-500">{reg.email}</span>
+                          </div>
+                        </div>
+
+                        {isAdmin ? (
+                          <>
+                            <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
+                              <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
+                              <select
+                                value={selectedClasses[reg.id] || 'Spark'}
+                                onChange={(e) => handleClassChange(reg.id, e.target.value)}
+                                className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
+                              >
+                                <option value="Spark">Spark (Formação Infantil)</option>
+                                <option value="Flame">Flame (Formação Geral)</option>
+                                <option value="Fusion">Fusion (Formação Avançada)</option>
+                                <option value="Thunder">Thunder (Pré-Representação)</option>
+                                <option value="Firestorm">Firestorm (Representação)</option>
+                                <option value="Stormfit">Stormfit (adultos)</option>
+                              </select>
+                            </div>
+
+                            <div className="flex space-x-3">
+                              <button
+                                onClick={() => handleAcceptWithClass(reg.id)}
+                                className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                              >
+                                Aceitar e Atribuir Turma
+                              </button>
+                              <button
+                                onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
+                                className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                              >
+                                Rejeitar & Eliminar
+                              </button>
+                            </div>
+                          </>
+                        ) : (
+                          <div className="p-3 bg-gray-50 rounded-xl text-center border border-gray-200">
+                            <span className="text-xs text-gray-500 font-medium">
+                              🔒 Modo Leitura: Apenas a Treinadora Principal pode aprovar ou rejeitar fichas.
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+
+                  {pendingAdultsList.map((adult) => (
+                    <div key={adult.id} className="bg-white p-5 rounded-2xl shadow-sm border border-amber-200 space-y-4">
+                      <div>
+                        <div className="flex items-center space-x-2">
+                          <h3 className="font-bold text-gray-900 text-base">{adult.full_name || adult.fullName}</h3>
+                          <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-100 text-purple-800">Adulto Pendente</span>
+                        </div>
+                        <p className="text-xs text-gray-500">Nascimento: {adult.birth_date} | Sexo: {adult.gender} | NIF: {adult.nif}</p>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
+                        <div>
+                          <span className="text-gray-400 block mb-0.5">Contactos</span>
+                          <strong className="text-gray-800">{adult.phone}</strong>
+                          <span className="block text-gray-500">{adult.email}</span>
+                        </div>
+                        <div>
+                          <span className="text-gray-400 block mb-0.5">Modalidade</span>
+                          <strong className="text-gray-800">{adult.payment_mode || 'Mensal'}</strong>
+                        </div>
+                      </div>
+
+                      {isAdmin ? (
+                        <div className="flex space-x-3">
+                          <button
+                            onClick={() => handleAcceptAdult(adult.id)}
+                            className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                          >
+                            Aceitar Inscrição de Adulto
+                          </button>
+                          <button
+                            onClick={() => handleRejectAdult(adult.id)}
+                            className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
+                          >
+                            Rejeitar & Eliminar
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="p-3 bg-gray-50 rounded-xl text-center border border-gray-200">
+                          <span className="text-xs text-gray-500 font-medium">
+                            🔒 Modo Leitura: Apenas a Treinadora Principal pode aprovar ou rejeitar fichas.
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+            {/* FIM DA SECÇÃO DE PENDENTES NO TOPO */}
+
             <div className="flex bg-gray-200/80 p-1 rounded-xl w-full sm:w-auto self-start border border-gray-300">
               <button
                 onClick={() => setAcceptedSubView('athletes')}
@@ -1075,7 +1445,7 @@ export default function Dashboard({ onLogout }) {
                                     </div>
                                   ) : (
                                     <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0 shadow-inner">
-                                      👤
+                                      <svg className="w-6 h-6 text-purple-700" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                                     </div>
                                   )}
 
@@ -1257,7 +1627,7 @@ export default function Dashboard({ onLogout }) {
                                       />
                                     ) : (
                                       <div className="w-9 h-9 rounded-xl bg-white border border-gray-200 flex items-center justify-center text-[10px] text-gray-400 font-bold flex-shrink-0">
-                                        👤
+                                        <svg className="w-4 h-4 text-purple-700" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                                       </div>
                                     )}
                                     <div className="truncate">
@@ -1282,7 +1652,7 @@ export default function Dashboard({ onLogout }) {
           </div>
         )}
 
-        {/* SECÇÃO: PRESENÇAS COM CAIXA DE JUSTIFICAÇÃO */}
+        {/* SECÇÃO: PRESENÇAS DE ATLETAS */}
         {activeTab === 'attendance' && (
           <div className="space-y-4">
             <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
@@ -1360,7 +1730,7 @@ export default function Dashboard({ onLogout }) {
                           />
                         ) : (
                           <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center text-xs text-gray-400 font-bold flex-shrink-0">
-                            👤
+                            <svg className="w-5 h-5 text-purple-700" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                           </div>
                         )}
                         <h3 className="font-bold text-gray-900 text-sm">
@@ -1419,11 +1789,10 @@ export default function Dashboard({ onLogout }) {
                       </div>
                     </div>
 
-                    {/* Caixa de Texto que abre apenas se for falta Justificada */}
-                    {currentStatus === 'justificado' && (
+                    {(currentStatus === 'justificado' || justification) && (
                       <div className="pt-2 border-t border-gray-100 animate-in fade-in duration-200">
                         <label className="block text-[11px] font-bold text-amber-800 mb-1">
-                          📝 Justificação da Falta:
+                          📝 Justificação da Falta (Guardada na BD):
                         </label>
                         <input
                           type="text"
@@ -1438,6 +1807,86 @@ export default function Dashboard({ onLogout }) {
                 );
               });
             })()}
+          </div>
+        )}
+
+        {/* SECÇÃO: PRESENÇAS DE TREINADORES */}
+        {activeTab === 'coachAttendance' && (
+          <div className="space-y-4">
+            <div className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+              <div>
+                <label className="block text-xs font-bold text-gray-800 mb-1">Selecione o Dia para Presenças de Treinadores:</label>
+                <input
+                  type="date"
+                  value={coachSelectedDate}
+                  onChange={(e) => setCoachSelectedDate(e.target.value)}
+                  className="w-full p-2.5 border border-gray-300 rounded-xl text-xs font-medium bg-gray-50"
+                />
+              </div>
+
+              <button
+                onClick={exportCoachAttendancesToExcel}
+                className="w-full sm:w-auto px-5 py-3 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition shadow flex items-center justify-center space-x-2"
+              >
+                <span>📊 Exportar Presenças Treinadores (Excel)</span>
+              </button>
+            </div>
+
+            <div className="space-y-3">
+              {availableCoaches.map((coachName) => {
+                const key = `${coachName}_${coachSelectedDate}`;
+                const currentStatus = coachAttendances[key];
+
+                return (
+                  <div key={coachName} className="bg-white p-4 rounded-2xl shadow-sm border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-clubRed/10 border border-clubRed/20 flex items-center justify-center text-clubRed font-bold text-xs flex-shrink-0">
+                        <svg className="w-5 h-5 text-purple-700" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+                      </div>
+                      <h3 className="font-bold text-gray-900 text-sm">{coachName}</h3>
+                    </div>
+
+                    <div className="flex items-center space-x-2 w-full sm:w-auto justify-end flex-wrap gap-y-1">
+                      <button
+                        type="button"
+                        onClick={() => handleSetCoachStatus(coachName, 'presente')}
+                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          currentStatus === 'presente'
+                            ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+                            : 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100'
+                        }`}
+                      >
+                        ✓ Presente (P)
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSetCoachStatus(coachName, 'justificado')}
+                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          currentStatus === 'justificado'
+                            ? 'bg-amber-500 text-white border-amber-500 shadow-sm'
+                            : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+                        }`}
+                      >
+                        FJ Justificada
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleSetCoachStatus(coachName, 'injustificado')}
+                        className={`flex-1 sm:flex-initial px-3 py-2 rounded-xl text-xs font-bold transition-all border ${
+                          currentStatus === 'injustificado'
+                            ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
+                            : 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100'
+                        }`}
+                      >
+                        ✕ FNJ Não Justificada
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -1956,7 +2405,7 @@ export default function Dashboard({ onLogout }) {
                               </div>
                             ) : (
                               <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl bg-gradient-to-br from-gray-100 to-gray-200 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0 shadow-inner">
-                                👤
+                                <svg className="w-6 h-6 text-purple-700" fill="currentColor" viewBox="0 0 24 24"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
                               </div>
                             )}
 
@@ -2166,7 +2615,7 @@ export default function Dashboard({ onLogout }) {
                 <button
                   type="submit"
                   disabled={isUpdatingProfile}
-                  className="w-full sm:w-auto px-6 py-3 bg-clubRed hover:bg-red-700 text-white font-bold text-xs rounded-xl transition shadow disabled:opacity-50"
+                  className="w-full sm:w-auto px-6 py-3 bg-clubRed hover:bg-red-700 text-white font-bold text-xs rounded-xl transition shadow disabled:opacity-55"
                 >
                   {isUpdatingProfile ? 'A guardar alterações...' : 'Guardar Dados Pessoais'}
                 </button>
