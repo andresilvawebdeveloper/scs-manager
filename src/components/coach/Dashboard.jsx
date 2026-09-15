@@ -44,6 +44,35 @@ export default function Dashboard({ onLogout }) {
     fetchCoachAttendances();
     fetchAthleteAttendances();
     fetchParentAttendances();
+
+    // Subscrição Supabase Realtime para escutar novas mensagens em tempo real (Estilo WhatsApp)
+    const messagesChannel = supabase
+      .channel('public:messages')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
+        // Se houver uma função no contexto para atualizar as mensagens, podemos chamá-la ou gerir localmente
+        if (sendMessage && typeof sendMessage === 'function') {
+          // Opcional: injetar a mensagem recebida se o contexto suportar, ou recarregar
+        }
+        // Disparar notificação visual estilo push se a mensagem não for do próprio treinador
+        if (payload.new && payload.new.sender !== 'Coach') {
+          if ('Notification' in window && Notification.permission === 'granted') {
+            new Notification('💬 Nova mensagem de ' + (payload.new.senderName || 'Encarregado'), {
+              body: payload.new.text || payload.new.message,
+              icon: '/logo.png'
+            });
+          }
+        }
+      })
+      .subscribe();
+
+    // Pedir permissão para notificações push nativas do browser se ainda não foi concedida
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+
+    return () => {
+      supabase.removeChannel(messagesChannel);
+    };
   }, []);
 
   const [activeTab, setActiveTab] = useState('accepted');
@@ -579,6 +608,16 @@ export default function Dashboard({ onLogout }) {
     }
 
     try {
+      // Gravar diretamente na tabela 'messages' para persistência e ativação do realtime
+      await supabase.from('messages').insert([
+        {
+          sender: 'Coach',
+          recipient_email: chatTarget,
+          text: chatText.trim(),
+          date: new Date().toISOString()
+        }
+      ]);
+
       let recipients = [];
       if (chatTarget === 'all') {
         recipients = acceptedList
@@ -1108,7 +1147,7 @@ export default function Dashboard({ onLogout }) {
         </div>
       </div>
 
-      {/* Tabs (Removido o botão "Pendentes" daqui, restam 7 colunas) */}
+      {/* Tabs */}
       <div className="max-w-4xl mx-auto px-4 mt-6">
         <div className="grid grid-cols-7 gap-1 bg-white p-1.5 rounded-2xl shadow-sm border border-gray-200 text-center">
           <button
@@ -1172,180 +1211,9 @@ export default function Dashboard({ onLogout }) {
 
       <main className="max-w-4xl mx-auto px-4 mt-6">
         
-        {/* SECÇÃO: PENDENTES (Mantida por compatibilidade caso acedida programaticamente, mas reposicionada ou gerida) */}
-        {activeTab === 'pending' && (
-          <div className="space-y-6">
-            <div className="space-y-4">
-              <div className="flex justify-between items-center">
-                <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes (Atletas)</h2>
-                <button 
-                  onClick={() => fetchRegistrations && fetchRegistrations()}
-                  className="text-xs text-clubRed font-semibold hover:underline"
-                >
-                  🔄 Recarregar
-                </button>
-              </div>
-
-              {pendingList.length === 0 ? (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 text-center">
-                  <p className="text-xs text-gray-400">Não existem inscrições de atletas pendentes.</p>
-                </div>
-              ) : (
-                pendingList.map((reg) => {
-                  const name = reg.athleteName || reg.athlete_name || reg.fullName;
-                  const birth = reg.birthDate || reg.birth_date;
-                  const cc = reg.athleteCC || reg.athlete_cc;
-                  const parent = reg.parentName || reg.parent_name;
-                  const parentCc = reg.parentCC || reg.parent_cc;
-                  const photoUrl = reg.photoUrl || reg.photo_url;
-
-                  return (
-                    <div key={reg.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                      <div className="flex items-center space-x-4">
-                        {photoUrl ? (
-                          <img 
-                            src={photoUrl} 
-                            alt={name} 
-                            className="w-14 h-14 rounded-2xl object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
-                          />
-                        ) : (
-                          <div className="w-14 h-14 rounded-2xl bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-400 font-bold text-xl flex-shrink-0">
-                            👤
-                          </div>
-                        )}
-                        <div>
-                          <h3 className="font-bold text-gray-900 text-base">{name}</h3>
-                          <p className="text-xs text-gray-500">Nascimento: {birth} | Sexo: {reg.gender} | CC: {cc}</p>
-                        </div>
-                      </div>
-
-                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
-                        <div>
-                          <span className="text-gray-400 block mb-0.5">Encarregado de Educação</span>
-                          <strong className="text-gray-800">{parent}</strong> (CC: {parentCc})
-                        </div>
-                        <div>
-                          <span className="text-gray-400 block mb-0.5">Telemóvel e Email</span>
-                          <strong className="text-gray-800">{reg.phone}</strong>
-                          <span className="block text-gray-500">{reg.email}</span>
-                        </div>
-                      </div>
-
-                      {isAdmin ? (
-                        <>
-                          <div className="bg-red-50/50 p-4 rounded-xl border border-red-100 space-y-2">
-                            <label className="block text-xs font-bold text-gray-700">Atribuir Turma ao Atleta:</label>
-                            <select
-                              value={selectedClasses[reg.id] || 'Spark'}
-                              onChange={(e) => handleClassChange(reg.id, e.target.value)}
-                              className="w-full p-3 border border-gray-300 rounded-xl text-xs font-semibold bg-white focus:outline-none"
-                            >
-                              <option value="Spark">Spark (Formação Infantil)</option>
-                              <option value="Flame">Flame (Formação Geral)</option>
-                              <option value="Fusion">Fusion (Formação Avançada)</option>
-                              <option value="Thunder">Thunder (Pré-Representação)</option>
-                              <option value="Firestorm">Firestorm (Representação)</option>
-                              <option value="Stormfit">Stormfit (adultos)</option>
-                            </select>
-                          </div>
-
-                          <div className="flex space-x-3">
-                            <button
-                              onClick={() => handleAcceptWithClass(reg.id)}
-                              className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                            >
-                              Aceitar e Atribuir Turma
-                            </button>
-                            <button
-                              onClick={() => updateRegistrationStatus(reg.id, 'rejected')}
-                              className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                            >
-                              Rejeitar & Eliminar
-                            </button>
-                          </div>
-                        </>
-                      ) : (
-                        <div className="p-3 bg-gray-50 rounded-xl text-center border border-gray-200">
-                          <span className="text-xs text-gray-500 font-medium">
-                            🔒 Modo Leitura: Apenas a Treinadora Principal pode aprovar ou rejeitar fichas.
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <div className="space-y-4 pt-4 border-t border-gray-200">
-              <div className="flex justify-between items-center">
-                <h2 className="font-bold text-gray-800 text-sm">Fichas de Inscrição Pendentes (Adultos / Stormfit)</h2>
-                <button 
-                  onClick={() => fetchAdultRegistrations && fetchAdultRegistrations()}
-                  className="text-xs text-clubRed font-semibold hover:underline"
-                >
-                  🔄 Recarregar Adultos
-                </button>
-              </div>
-
-              {pendingAdultsList.length === 0 ? (
-                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 text-center">
-                  <p className="text-xs text-gray-400">Não existem inscrições de adultos pendentes.</p>
-                </div>
-              ) : (
-                pendingAdultsList.map((adult) => (
-                  <div key={adult.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
-                    <div>
-                      <h3 className="font-bold text-gray-900 text-base">{adult.full_name || adult.fullName}</h3>
-                      <p className="text-xs text-gray-500">Nascimento: {adult.birth_date} | Sexo: {adult.gender} | NIF: {adult.nif}</p>
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-xs bg-gray-50 p-4 rounded-xl border border-gray-100">
-                      <div>
-                        <span className="text-gray-400 block mb-0.5">Contactos</span>
-                        <strong className="text-gray-800">{adult.phone}</strong>
-                        <span className="block text-gray-500">{adult.email}</span>
-                      </div>
-                      <div>
-                        <span className="text-gray-400 block mb-0.5">Modalidade</span>
-                        <strong className="text-gray-800">{adult.payment_mode || 'Mensal'}</strong>
-                      </div>
-                    </div>
-
-                    {isAdmin ? (
-                      <div className="flex space-x-3">
-                        <button
-                          onClick={() => handleAcceptAdult(adult.id)}
-                          className="flex-1 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                        >
-                          Aceitar Inscrição de Adulto
-                        </button>
-                        <button
-                          onClick={() => handleRejectAdult(adult.id)}
-                          className="flex-1 py-3 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-sm"
-                        >
-                          Rejeitar & Eliminar
-                        </button>
-                      </div>
-                    ) : (
-                      <div className="p-3 bg-gray-50 rounded-xl text-center border border-gray-200">
-                        <span className="text-xs text-gray-500 font-medium">
-                          🔒 Modo Leitura: Apenas a Treinadora Principal pode aprovar ou rejeitar fichas.
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
-        )}
-
-        {/* SECÇÃO: ATLETAS ACEITES (Com as Inscrições Pendentes colocadas no início da página) */}
+        {/* SECÇÃO: ATLETAS ACEITES */}
         {activeTab === 'accepted' && (
           <div className="space-y-6">
-            
-            {/* INÍCIO DA PÁGINA DE ATLETAS: Secção de Pendentes Integrada */}
             <div className="space-y-6 bg-amber-50/40 p-5 rounded-2xl border border-amber-200/60 mb-6">
               <div className="flex justify-between items-center border-b border-amber-200 pb-3">
                 <div className="flex items-center space-x-2">
@@ -1508,7 +1376,6 @@ export default function Dashboard({ onLogout }) {
                 </div>
               )}
             </div>
-            {/* FIM DA SECÇÃO DE PENDENTES NO TOPO */}
 
             <div className="flex bg-gray-200/80 p-1 rounded-xl w-full sm:w-auto self-start border border-gray-300">
               <button
@@ -2406,7 +2273,6 @@ export default function Dashboard({ onLogout }) {
               </form>
             </div>
 
-            {/* SECÇÃO DE MARCAÇÃO DE PRESENÇAS DA AULA DOS PAIS */}
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-4">
               <div className="flex flex-col sm:flex-row justify-between items-center gap-4 border-b border-gray-100 pb-3">
                 <div>
