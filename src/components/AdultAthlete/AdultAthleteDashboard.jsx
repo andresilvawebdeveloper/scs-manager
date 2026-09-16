@@ -171,13 +171,14 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
         .from('avatars')
         .getPublicUrl(filePath);
 
-      const payload = { photoUrl: publicUrl };
+      // Usar 'photo_url' para garantir compatibilidade com a coluna da base de dados e refresh
+      const payload = { photo_url: publicUrl };
 
       if (updateAdultRegistration) {
         await updateAdultRegistration(registration.id, payload);
       }
 
-      setFormData(prev => ({ ...prev, photoUrl: publicUrl }));
+      setFormData(prev => ({ ...prev, photo_url: publicUrl, photoUrl: publicUrl }));
       setSuccessMsg('Fotografia de perfil atualizada com sucesso!');
     } catch (err) {
       console.error('Erro ao carregar fotografia:', err.message);
@@ -192,13 +193,13 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
     try {
       setUploadingPhoto(true);
-      const payload = { photoUrl: null };
+      const payload = { photo_url: null };
 
       if (updateAdultRegistration) {
         await updateAdultRegistration(registration.id, payload);
       }
 
-      setFormData(prev => ({ ...prev, photoUrl: null }));
+      setFormData(prev => ({ ...prev, photo_url: null, photoUrl: null }));
       setSuccessMsg('Fotografia de perfil removida com sucesso!');
     } catch (err) {
       console.error('Erro ao remover fotografia:', err.message);
@@ -287,7 +288,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const displayNif = formData.nif || formData.athleteNIF || formData.athlete_nif || 'Não preenchido';
   const displayAddress = formData.address || 'Não preenchida';
   const displayPayment = formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal';
-  const currentPhotoUrl = formData.photoUrl || formData.photo_url;
+  const currentPhotoUrl = formData.photo_url || formData.photoUrl;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
