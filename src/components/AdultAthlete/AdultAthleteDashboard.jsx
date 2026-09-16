@@ -130,6 +130,9 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const [formData, setFormData] = useState(registration);
   const [successMsg, setSuccessMsg] = useState('');
 
+  // Estado para gestão de foto de perfil
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
   // Estado do Chat
   const [chatText, setChatText] = useState('');
   const [isSendingChat, setIsSendingChat] = useState(false);
@@ -146,6 +149,63 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handlePhotoUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      setUploadingPhoto(true);
+      const fileExt = file.name.split('.').pop();
+      const fileName = `${registration.id}_${Math.random()}.${fileExt}`;
+      const filePath = `adult-photos/${fileName}`;
+
+      const { error: uploadError } = await supabase.storage
+        .from('avatars')
+        .upload(filePath, file);
+
+      if (uploadError) throw uploadError;
+
+      const { data: { publicUrl } } = supabase.storage
+        .from('avatars')
+        .getPublicUrl(filePath);
+
+      const payload = { photoUrl: publicUrl };
+
+      if (updateAdultRegistration) {
+        await updateAdultRegistration(registration.id, payload);
+      }
+
+      setFormData(prev => ({ ...prev, photoUrl: publicUrl }));
+      setSuccessMsg('Fotografia de perfil atualizada com sucesso!');
+    } catch (err) {
+      console.error('Erro ao carregar fotografia:', err.message);
+      alert('Erro ao carregar fotografia: ' + err.message);
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleRemovePhoto = async () => {
+    if (!window.confirm('Tem a certeza que pretende remover a sua fotografia de perfil?')) return;
+
+    try {
+      setUploadingPhoto(true);
+      const payload = { photoUrl: null };
+
+      if (updateAdultRegistration) {
+        await updateAdultRegistration(registration.id, payload);
+      }
+
+      setFormData(prev => ({ ...prev, photoUrl: null }));
+      setSuccessMsg('Fotografia de perfil removida com sucesso!');
+    } catch (err) {
+      console.error('Erro ao remover fotografia:', err.message);
+      alert('Erro ao remover fotografia: ' + err.message);
+    } finally {
+      setUploadingPhoto(false);
+    }
   };
 
   const handleSave = async (e) => {
@@ -227,6 +287,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const displayNif = formData.nif || formData.athleteNIF || formData.athlete_nif || 'Não preenchido';
   const displayAddress = formData.address || 'Não preenchida';
   const displayPayment = formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal';
+  const currentPhotoUrl = formData.photoUrl || formData.photo_url;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
@@ -314,6 +375,39 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
                     Editar Dados
                   </button>
                 )}
+              </div>
+
+              {/* Secção de Fotografia de Perfil */}
+              <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                {currentPhotoUrl ? (
+                  <img 
+                    src={currentPhotoUrl} 
+                    alt={displayName} 
+                    className="w-20 h-20 rounded-2xl object-cover border-2 border-amber-600 shadow-sm" 
+                  />
+                ) : (
+                  <div className="w-20 h-20 rounded-2xl bg-gray-200 border border-gray-300 flex items-center justify-center text-gray-400 font-bold text-2xl shadow-inner">
+                    👤
+                  </div>
+                )}
+                <div className="flex flex-col space-y-2 text-center sm:text-left">
+                  <span className="text-xs font-bold text-gray-800">Fotografia de Perfil</span>
+                  <div className="flex flex-wrap gap-2 justify-center sm:justify-start">
+                    <label className={`px-3 py-1.5 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-semibold cursor-pointer transition ${uploadingPhoto ? 'opacity-50 pointer-events-none' : ''}`}>
+                      {uploadingPhoto ? 'A carregar...' : currentPhotoUrl ? 'Alterar Foto' : 'Adicionar Foto'}
+                      <input type="file" accept="image/*" onChange={handlePhotoUpload} className="hidden" />
+                    </label>
+                    {currentPhotoUrl && (
+                      <button 
+                        onClick={handleRemovePhoto} 
+                        disabled={uploadingPhoto}
+                        className="px-3 py-1.5 bg-rose-50 hover:bg-rose-100 text-rose-600 rounded-lg text-xs font-semibold transition"
+                      >
+                        Remover Foto
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
 
               {!isEditing ? (
