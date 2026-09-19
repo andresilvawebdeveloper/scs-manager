@@ -171,8 +171,8 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
         .from('avatars')
         .getPublicUrl(filePath);
 
-      // Usar 'photo_url' para garantir compatibilidade com a coluna da base de dados e refresh
-      const payload = { photo_url: publicUrl };
+      // Atualiza com ambas as propriedades para garantir compatibilidade total na base de dados
+      const payload = { photo_url: publicUrl, photoUrl: publicUrl };
 
       if (updateAdultRegistration) {
         await updateAdultRegistration(registration.id, payload);
@@ -193,7 +193,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
     try {
       setUploadingPhoto(true);
-      const payload = { photo_url: null };
+      const payload = { photo_url: null, photoUrl: null };
 
       if (updateAdultRegistration) {
         await updateAdultRegistration(registration.id, payload);
@@ -288,7 +288,9 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const displayNif = formData.nif || formData.athleteNIF || formData.athlete_nif || 'Não preenchido';
   const displayAddress = formData.address || 'Não preenchida';
   const displayPayment = formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal';
-  const currentPhotoUrl = formData.photo_url || formData.photoUrl;
+  
+  // Normalização reforçada para garantir que a foto é sempre detetada
+  const currentPhotoUrl = formData.photo_url || formData.photoUrl || registration.photo_url || registration.photoUrl;
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">

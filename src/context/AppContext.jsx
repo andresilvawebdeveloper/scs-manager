@@ -227,6 +227,8 @@ export function AppProvider({ children }) {
           payment_mode: item.payment_mode || item.paymentMode || 'Mensal',
           accessCode: item.access_code || item.accessCode || '',
           access_code: item.access_code || item.accessCode || '',
+          photo_url: item.photo_url || item.photoUrl || '',
+          photoUrl: item.photo_url || item.photoUrl || '',
         }));
         setAdultRegistrations(normalizedAdults);
       }
@@ -541,9 +543,21 @@ export function AppProvider({ children }) {
     }
   };
 
+  // Atualizado para garantir compatibilidade total com photo_url e photoUrl
   const updateAdultRegistration = async (id, updatedData) => {
     try {
-      await supabase.from('adult_registrations').update(updatedData).eq('id', id);
+      const payload = {
+        ...updatedData,
+        ...(updatedData.photoUrl !== undefined && { photo_url: updatedData.photoUrl }),
+        ...(updatedData.photo_url !== undefined && { photoUrl: updatedData.photo_url }),
+      };
+
+      const { error } = await supabase
+        .from('adult_registrations')
+        .update(payload)
+        .eq('id', id);
+
+      if (error) throw error;
       await fetchAdultRegistrations();
     } catch (err) {
       console.error('Erro ao atualizar adulto:', err);
