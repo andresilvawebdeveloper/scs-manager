@@ -158,7 +158,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     try {
       setUploadingPhoto(true);
       const fileExt = file.name.split('.').pop();
-      const fileName = `${registration.id}_${Math.random()}.${fileExt}`;
+      const fileName = `${registration.id || 'adult'}_${Date.now()}.${fileExt}`;
       const filePath = `adult-photos/${fileName}`;
 
       const { error: uploadError } = await supabase.storage
@@ -171,8 +171,15 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
         .from('avatars')
         .getPublicUrl(filePath);
 
-      // Atualiza com ambas as propriedades para garantir compatibilidade total na base de dados
       const payload = { photo_url: publicUrl, photoUrl: publicUrl };
+
+      // Atualiza diretamente na tabela 'adult_registrations' utilizando o email como chave segura
+      const { error: dbError } = await supabase
+        .from('adult_registrations')
+        .update(payload)
+        .eq('email', userEmail);
+
+      if (dbError) throw dbError;
 
       if (updateAdultRegistration) {
         await updateAdultRegistration(registration.id, payload);
@@ -194,6 +201,13 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     try {
       setUploadingPhoto(true);
       const payload = { photo_url: null, photoUrl: null };
+
+      const { error: dbError } = await supabase
+        .from('adult_registrations')
+        .update(payload)
+        .eq('email', userEmail);
+
+      if (dbError) throw dbError;
 
       if (updateAdultRegistration) {
         await updateAdultRegistration(registration.id, payload);
