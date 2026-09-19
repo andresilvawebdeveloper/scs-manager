@@ -26,7 +26,6 @@ export function AppProvider({ children }) {
   const [events, setEvents] = useState([]);
   const [currentCoach, setCurrentCoach] = useState(null);
 
-  // Alterado para iniciar vazio e ser preenchido via Supabase
   const [attendances, setAttendances] = useState({});
 
   const [eventAttendances, setEventAttendances] = useState(() => {
@@ -41,6 +40,20 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
+  // Função auxiliar para associar o utilizador ao OneSignal de forma persistente
+  const setupOneSignalUser = async (user) => {
+    try {
+      if (user?.id) {
+        await OneSignal.login(user.id);
+        if (user.email) {
+          OneSignal.User.setEmail(user.email);
+        }
+      }
+    } catch (err) {
+      console.error("Erro ao associar utilizador no OneSignal:", err);
+    }
+  };
+
   useEffect(() => {
     const initOneSignal = async () => {
       try {
@@ -51,6 +64,12 @@ export function AppProvider({ children }) {
           notifyButton: { enable: false },
         });
         await OneSignal.Notifications.requestPermission();
+
+        // Se já houver sessão ativa ao inicializar o OneSignal, associa o utilizador
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user) {
+          await setupOneSignalUser(session.user);
+        }
 
         OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
           const playerId = event.current.id;
@@ -79,12 +98,13 @@ export function AppProvider({ children }) {
     fetchEvents();
     fetchEventAttendances();
     fetchAdultClasses();
-    fetchAttendances(); // <-- Adicionado carregamento de presenças do Supabase
+    fetchAttendances();
 
     const checkActiveSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (session?.user) {
         await fetchCoachProfile(session.user);
+        await setupOneSignalUser(session.user);
       }
     };
     checkActiveSession();
@@ -92,12 +112,15 @@ export function AppProvider({ children }) {
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
       if (session?.user) {
         await fetchCoachProfile(session.user);
+        await setupOneSignalUser(session.user);
       } else {
         setCurrentCoach(null);
+        try {
+          await OneSignal.logout();
+        } catch (e) {}
       }
     });
 
-    // Subscrição Realtime para as Presenças (Sincronização entre Treinadores)
     const attendancesSubscription = supabase
       .channel('public:attendances')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'attendances' }, () => {
@@ -143,7 +166,6 @@ export function AppProvider({ children }) {
     localStorage.setItem('scs_messages', JSON.stringify(messages));
   }, [messages]);
 
-  // Função para buscar presenças da base de dados centralizada
   const fetchAttendances = async () => {
     try {
       const { data, error } = await supabase.from('attendances').select('*');
@@ -551,6 +573,7 @@ export function AppProvider({ children }) {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
       if (error) return { success: false, message: 'Email ou password incorretos.' };
       await fetchCoachProfile(data.user);
+      await setupOneSignalUser(data.user);
       return { success: true, coach: data.user };
     } catch (err) {
       return { success: false, message: 'Erro no login: ' + err.message };
@@ -558,11 +581,13 @@ export function AppProvider({ children }) {
   };
 
   const logoutCoach = async () => {
+    try {
+      await OneSignal.logout();
+    } catch (e) {}
     await supabase.auth.signOut();
     setCurrentCoach(null);
   };
 
-  // Atualizado para gravar diretamente na base de dados do Supabase
   const toggleAttendance = async (athleteId, date, forcedStatus = undefined) => {
     const key = `${athleteId}_${date}`;
     const current = attendances[key];
@@ -578,7 +603,6 @@ export function AppProvider({ children }) {
       else nextState = 'presente';
     }
 
-    // Atualização otimista imediata do ecrã
     setAttendances((prev) => ({ ...prev, [key]: nextState }));
 
     try {
