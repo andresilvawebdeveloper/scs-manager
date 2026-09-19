@@ -24,7 +24,12 @@ export function AppProvider({ children }) {
   const [registrations, setRegistrations] = useState([]);
   const [adultRegistrations, setAdultRegistrations] = useState([]);
   const [events, setEvents] = useState([]);
-  const [currentCoach, setCurrentCoach] = useState(null);
+  
+  // Recupera o treinador do localStorage instantaneamente para sobreviver ao swipe no iPhone
+  const [currentCoach, setCurrentCoach] = useState(() => {
+    const saved = localStorage.getItem('scs_current_coach');
+    return saved ? JSON.parse(saved) : null;
+  });
 
   const [attendances, setAttendances] = useState({});
 
@@ -115,6 +120,7 @@ export function AppProvider({ children }) {
         await setupOneSignalUser(session.user);
       } else {
         setCurrentCoach(null);
+        localStorage.removeItem('scs_current_coach');
         try {
           await OneSignal.logout();
         } catch (e) {}
@@ -152,7 +158,9 @@ export function AppProvider({ children }) {
         name: coachProfile?.email || authUser.email,
         role: coachProfile?.role || (authUser.email === 'joana.meireles@gmail.com' ? 'admin' : 'coach'),
       };
+      
       setCurrentCoach(coachData);
+      localStorage.setItem('scs_current_coach', JSON.stringify(coachData)); // Guarda no localStorage para persistir após swipe
     } catch (err) {
       console.error('Erro ao carregar dados do treinador:', err.message);
     }
@@ -586,6 +594,7 @@ export function AppProvider({ children }) {
     } catch (e) {}
     await supabase.auth.signOut();
     setCurrentCoach(null);
+    localStorage.removeItem('scs_current_coach'); // Limpa apenas no logout explícito
   };
 
   const toggleAttendance = async (athleteId, date, forcedStatus = undefined) => {
