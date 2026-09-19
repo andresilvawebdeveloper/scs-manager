@@ -171,9 +171,9 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
         .from('avatars')
         .getPublicUrl(filePath);
 
-      const payload = { photo_url: publicUrl, photoUrl: publicUrl };
+      // Usar apenas photo_url para corresponder estritamente à coluna da base de dados
+      const payload = { photo_url: publicUrl };
 
-      // Atualiza diretamente na tabela 'adult_registrations' utilizando o email como chave segura
       const { error: dbError } = await supabase
         .from('adult_registrations')
         .update(payload)
@@ -200,7 +200,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
     try {
       setUploadingPhoto(true);
-      const payload = { photo_url: null, photoUrl: null };
+      const payload = { photo_url: null };
 
       const { error: dbError } = await supabase
         .from('adult_registrations')
