@@ -543,7 +543,7 @@ export function AppProvider({ children }) {
     }
   };
 
-  // Atualizado para garantir compatibilidade total com photo_url e photoUrl
+  // Atualizado para atualizar também o estado local imediatamente após o update
   const updateAdultRegistration = async (id, updatedData) => {
     try {
       const payload = {
@@ -558,6 +558,12 @@ export function AppProvider({ children }) {
         .eq('id', id);
 
       if (error) throw error;
+      
+      // Atualiza o estado local imediatamente para refletir na UI sem esperar fetch
+      setAdultRegistrations((prev) =>
+        prev.map((reg) => (reg.id === id ? { ...reg, ...payload } : reg))
+      );
+
       await fetchAdultRegistrations();
     } catch (err) {
       console.error('Erro ao atualizar adulto:', err);
