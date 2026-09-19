@@ -4,7 +4,6 @@ import { supabase } from '../services/supabaseClient';
 
 const AppContext = createContext();
 
-// Função auxiliar para converter qualquer tipo de dado num Array válido de texto
 const ensureArray = (val) => {
   if (!val) return [];
   if (Array.isArray(val)) return val;
@@ -27,10 +26,8 @@ export function AppProvider({ children }) {
   const [events, setEvents] = useState([]);
   const [currentCoach, setCurrentCoach] = useState(null);
 
-  const [attendances, setAttendances] = useState(() => {
-    const saved = localStorage.getItem('scs_attendances');
-    return saved ? JSON.parse(saved) : {};
-  });
+  // Alterado para iniciar vazio e ser preenchido via Supabase
+  const [attendances, setAttendances] = useState({});
 
   const [eventAttendances, setEventAttendances] = useState(() => {
     const saved = localStorage.getItem('scs_event_attendances');
@@ -44,18 +41,15 @@ export function AppProvider({ children }) {
     return saved ? JSON.parse(saved) : [];
   });
 
-  // Inicialização do OneSignal para Notificações Push no Telemóvel
   useEffect(() => {
     const initOneSignal = async () => {
       try {
         const appId = import.meta.env.VITE_ONESIGNAL_APP_ID || "a9ae2382-1991-495c-9f01-650eb76397d5";
-
         await OneSignal.init({
           appId: appId,
           allowLocalhostAsSecureOrigin: true,
           notifyButton: { enable: false },
         });
-
         await OneSignal.Notifications.requestPermission();
 
         OneSignal.User.PushSubscription.addEventListener("change", async (event) => {
@@ -75,17 +69,17 @@ export function AppProvider({ children }) {
         console.error("Erro na inicialização do OneSignal:", err);
       }
     };
-
     initOneSignal();
   }, []);
 
-  // Carregar dados iniciais e subscrever a alterações de sessão no Supabase
+  // Carregar dados iniciais e subscrever a alterações
   useEffect(() => {
     fetchRegistrations();
     fetchAdultRegistrations();
     fetchEvents();
     fetchEventAttendances();
     fetchAdultClasses();
+    fetchAttendances(); // <-- Adicionado carregamento de presenças do Supabase
 
     const checkActiveSession = async () => {
       const { data: { session } } = await supabase.auth.getSession();
@@ -93,7 +87,6 @@ export function AppProvider({ children }) {
         await fetchCoachProfile(session.user);
       }
     };
-
     checkActiveSession();
 
     const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
@@ -104,8 +97,17 @@ export function AppProvider({ children }) {
       }
     });
 
+    // Subscrição Realtime para as Presenças (Sincronização entre Treinadores)
+    const attendancesSubscription = supabase
+      .channel('public:attendances')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'attendances' }, () => {
+        fetchAttendances();
+      })
+      .subscribe();
+
     return () => {
       authListener?.subscription?.unsubscribe();
+      supabase.removeChannel(attendancesSubscription);
     };
   }, []);
 
@@ -127,16 +129,11 @@ export function AppProvider({ children }) {
         name: coachProfile?.email || authUser.email,
         role: coachProfile?.role || (authUser.email === 'joana.meireles@gmail.com' ? 'admin' : 'coach'),
       };
-
       setCurrentCoach(coachData);
     } catch (err) {
       console.error('Erro ao carregar dados do treinador:', err.message);
     }
   };
-
-  useEffect(() => {
-    localStorage.setItem('scs_attendances', JSON.stringify(attendances));
-  }, [attendances]);
 
   useEffect(() => {
     localStorage.setItem('scs_event_attendances', JSON.stringify(eventAttendances));
@@ -146,13 +143,31 @@ export function AppProvider({ children }) {
     localStorage.setItem('scs_messages', JSON.stringify(messages));
   }, [messages]);
 
+  // Função para buscar presenças da base de dados centralizada
+  const fetchAttendances = async () => {
+    try {
+      const { data, error } = await supabase.from('attendances').select('*');
+      if (error) throw error;
+
+      if (data) {
+        const loadedMap = {};
+        data.forEach((item) => {
+          const key = `${item.athlete_id}_${item.date}`;
+          loadedMap[key] = item.status;
+        });
+        setAttendances(loadedMap);
+      }
+    } catch (err) {
+      console.error('Erro ao carregar presenças:', err.message);
+    }
+  };
+
   const fetchRegistrations = async () => {
     try {
       const { data, error } = await supabase
         .from('registrations')
         .select('*')
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       if (data) setRegistrations(data);
     } catch (err) {
@@ -166,7 +181,6 @@ export function AppProvider({ children }) {
         .from('adult_registrations')
         .select('*')
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       if (data) {
         const normalizedAdults = data.map((item) => ({
@@ -195,7 +209,6 @@ export function AppProvider({ children }) {
     try {
       const { data, error } = await supabase.from('event_attendances').select('*');
       if (error) throw error;
-      
       if (data) {
         const loadedMap = {};
         data.forEach((item) => {
@@ -215,7 +228,6 @@ export function AppProvider({ children }) {
         .from('adult_classes')
         .select('*')
         .order('created_at', { ascending: false });
-
       if (error) throw error;
       if (data) {
         const formatted = data.map((c) => ({
@@ -269,14 +281,11 @@ export function AppProvider({ children }) {
         .select('*')
         .eq('id', classId)
         .single();
-
       if (fetchError) throw fetchError;
 
-      // Se for Avulso, verificar se já atingiu o período de abertura permitido
       if (paymentMode !== 'Mensal') {
         const classDate = new Date(`${currentClass.date}T${currentClass.time || '00:00'}:00`);
         const allowedDaysBefore = currentClass.days_before || currentClass.daysBefore || 1;
-        
         const openingDate = new Date(classDate.getTime());
         openingDate.setDate(openingDate.getDate() - allowedDaysBefore);
         openingDate.setHours(0, 0, 0, 0);
@@ -290,10 +299,7 @@ export function AppProvider({ children }) {
         }
       }
 
-      const currentEnrolled = Array.isArray(currentClass.enrolled_parents) 
-        ? currentClass.enrolled_parents 
-        : [];
-
+      const currentEnrolled = Array.isArray(currentClass.enrolled_parents) ? currentClass.enrolled_parents : [];
       const alreadyEnrolled = currentEnrolled.some(p => p.id === adultUserData.id || p.email === adultUserData.email);
       if (alreadyEnrolled) {
         return { success: false, message: "Já se encontra inscrito nesta aula." };
@@ -305,17 +311,14 @@ export function AppProvider({ children }) {
       }
 
       const updatedEnrolled = [...currentEnrolled, adultUserData];
-
       const { error: updateError } = await supabase
         .from('adult_classes')
         .update({ enrolled_parents: updatedEnrolled })
         .eq('id', classId);
 
       if (updateError) throw updateError;
-
       await fetchAdultClasses();
       return { success: true, message: "Inscrição efetuada com sucesso!" };
-
     } catch (err) {
       console.error("Erro ao inscrever na aula de adultos:", err.message);
       return { success: false, message: "Erro ao efetuar inscrição: " + err.message };
@@ -329,13 +332,9 @@ export function AppProvider({ children }) {
         .select('enrolled_parents')
         .eq('id', classId)
         .single();
-
       if (fetchError) throw fetchError;
 
-      const currentEnrolled = Array.isArray(currentClass.enrolled_parents) 
-        ? currentClass.enrolled_parents 
-        : [];
-
+      const currentEnrolled = Array.isArray(currentClass.enrolled_parents) ? currentClass.enrolled_parents : [];
       const updatedEnrolled = currentEnrolled.filter(p => p.id !== adultId);
 
       const { error: updateError } = await supabase
@@ -344,7 +343,6 @@ export function AppProvider({ children }) {
         .eq('id', classId);
 
       if (updateError) throw updateError;
-
       await fetchAdultClasses();
       return { success: true, message: "Inscrição cancelada com sucesso!" };
     } catch (err) {
@@ -357,7 +355,6 @@ export function AppProvider({ children }) {
     try {
       const { data, error } = await supabase.from('events').select('*');
       if (error) throw error;
-
       if (data && Array.isArray(data)) {
         const formattedEvents = data.map((ev) => {
           if (!ev) return null;
@@ -389,7 +386,6 @@ export function AppProvider({ children }) {
             raw: ev
           };
         }).filter(Boolean);
-
         setEvents(formattedEvents);
       }
     } catch (err) {
@@ -414,7 +410,6 @@ export function AppProvider({ children }) {
   const addRegistration = async (formData) => {
     const assignedCode = generateSCSCode();
     const generatedId = crypto.randomUUID ? crypto.randomUUID() : `reg_${Date.now()}`;
-
     const newReg = {
       id: generatedId,
       status: 'pending',
@@ -449,7 +444,6 @@ export function AppProvider({ children }) {
   const addAdultRegistration = async (formData) => {
     const assignedCode = generateAdultSCSCode();
     const generatedId = crypto.randomUUID ? crypto.randomUUID() : `adult_${Date.now()}`;
-
     const newAdultReg = {
       id: generatedId,
       status: 'pending',
@@ -568,21 +562,44 @@ export function AppProvider({ children }) {
     setCurrentCoach(null);
   };
 
-  const toggleAttendance = (athleteId, date, forcedStatus = undefined) => {
+  // Atualizado para gravar diretamente na base de dados do Supabase
+  const toggleAttendance = async (athleteId, date, forcedStatus = undefined) => {
     const key = `${athleteId}_${date}`;
-    setAttendances((prev) => {
-      let nextState;
-      if (forcedStatus !== undefined) nextState = forcedStatus;
-      else {
-        const current = prev[key];
-        if (current === 'presente') nextState = 'justificado';
-        else if (current === 'justificado') nextState = 'injustificado';
-        else if (current === 'injustificado') nextState = 'lesao';
-        else if (current === 'lesao') nextState = null;
-        else nextState = 'presente';
+    const current = attendances[key];
+    let nextState;
+
+    if (forcedStatus !== undefined) {
+      nextState = forcedStatus;
+    } else {
+      if (current === 'presente') nextState = 'justificado';
+      else if (current === 'justificado') nextState = 'injustificado';
+      else if (current === 'injustificado') nextState = 'lesao';
+      else if (current === 'lesao') nextState = null;
+      else nextState = 'presente';
+    }
+
+    // Atualização otimista imediata do ecrã
+    setAttendances((prev) => ({ ...prev, [key]: nextState }));
+
+    try {
+      if (nextState === null) {
+        await supabase
+          .from('attendances')
+          .delete()
+          .match({ athlete_id: String(athleteId), date: String(date) });
+      } else {
+        await supabase
+          .from('attendances')
+          .upsert({
+            athlete_id: String(athleteId),
+            date: String(date),
+            status: nextState,
+            updated_at: new Date().toISOString()
+          }, { onConflict: 'athlete_id,date' });
       }
-      return { ...prev, [key]: nextState };
-    });
+    } catch (err) {
+      console.error('Erro ao salvar presença no Supabase:', err);
+    }
   };
 
   const addEvent = async (eventData) => {
@@ -617,7 +634,6 @@ export function AppProvider({ children }) {
     const key = `${eventId}_${athleteId}`;
     const newStatus = forcedStatus !== undefined ? forcedStatus : true;
 
-    // Atualização otimista e imediata do estado local
     setEventAttendances((prev) => ({ ...prev, [key]: { status: newStatus } }));
 
     try {
