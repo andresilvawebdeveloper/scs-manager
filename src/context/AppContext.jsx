@@ -20,6 +20,15 @@ const ensureArray = (val) => {
   return [];
 };
 
+// Função para garantir que os números de telemóvel ficam no formato E.164 (+351...)
+const formatPhoneNumber = (phone) => {
+  if (!phone) return '';
+  const cleaned = String(phone).replace(/\D/g, ''); // Remove tudo o que não for dígito
+  if (cleaned.length === 9) return `+351${cleaned}`;
+  if (cleaned.startsWith('351') && cleaned.length === 12) return `+${cleaned}`;
+  return phone.startsWith('+') ? phone : `+${cleaned}`;
+};
+
 export function AppProvider({ children }) {
   const [registrations, setRegistrations] = useState([]);
   const [adultRegistrations, setAdultRegistrations] = useState([]);
@@ -455,7 +464,7 @@ export function AppProvider({ children }) {
       parent_name: formData.parent_name || formData.parentName || '',
       parent_cc: formData.parent_cc || formData.parentCC || '',
       email: formData.email || '',
-      phone: formData.phone || '',
+      phone: formatPhoneNumber(formData.phone || ''),
       address: formData.address || '',
       postal_code: formData.postal_code || formData.postalCode || '',
       city: formData.city || '',
@@ -488,7 +497,7 @@ export function AppProvider({ children }) {
       address: formData.address || '',
       city: formData.city || '',
       postal_code: formData.postal_code || formData.postalCode || '',
-      phone: formData.phone || '',
+      phone: formatPhoneNumber(formData.phone || ''),
       email: formData.email || '',
       payment_mode: formData.adultClassesPaymentMode || formData.paymentMode || 'Mensal',
     };
@@ -536,18 +545,22 @@ export function AppProvider({ children }) {
 
   const updateRegistrationByParent = async (id, updatedData) => {
     try {
-      await supabase.from('registrations').update(updatedData).eq('id', id);
-      setRegistrations((prev) => prev.map((reg) => (reg.id === id ? { ...reg, ...updatedData } : reg)));
+      const payload = {
+        ...updatedData,
+        ...(updatedData.phone && { phone: formatPhoneNumber(updatedData.phone) })
+      };
+      await supabase.from('registrations').update(payload).eq('id', id);
+      setRegistrations((prev) => prev.map((reg) => (reg.id === id ? { ...reg, ...payload } : reg)));
     } catch (err) {
       console.error('Erro ao atualizar:', err);
     }
   };
 
-  // Atualizado para atualizar também o estado local imediatamente após o update
   const updateAdultRegistration = async (id, updatedData) => {
     try {
       const payload = {
         ...updatedData,
+        ...(updatedData.phone && { phone: formatPhoneNumber(updatedData.phone) }),
         ...(updatedData.photoUrl !== undefined && { photo_url: updatedData.photoUrl }),
         ...(updatedData.photo_url !== undefined && { photoUrl: updatedData.photo_url }),
       };
@@ -559,7 +572,6 @@ export function AppProvider({ children }) {
 
       if (error) throw error;
       
-      // Atualiza o estado local imediatamente para refletir na UI sem esperar fetch
       setAdultRegistrations((prev) =>
         prev.map((reg) => (reg.id === id ? { ...reg, ...payload } : reg))
       );
@@ -596,6 +608,38 @@ export function AppProvider({ children }) {
     return { success: true, registration };
   };
 
+  // Enviar código SMS via Supabase OTP
+  const sendSmsVerification = async (phone) => {
+    try {
+      const formattedPhone = formatPhoneNumber(phone);
+      const { data, error } = await supabase.auth.signInWithOtp({
+        phone: formattedPhone
+      });
+      if (error) throw error;
+      return { success: true, data };
+    } catch (err) {
+      console.error("Erro ao enviar SMS:", err);
+      return { success: false, message: err.message || "Falha ao enviar SMS de verificação." };
+    }
+  };
+
+  // Validar código SMS de 6 dígitos inserido pelo utilizador
+  const verifySmsCode = async (phone, token) => {
+    try {
+      const formattedPhone = formatPhoneNumber(phone);
+      const { data, error } = await supabase.auth.verifyOtp({
+        phone: formattedPhone,
+        token: token.trim(),
+        type: 'sms'
+      });
+      if (error) throw error;
+      return { success: true, data };
+    } catch (err) {
+      console.error("Erro ao verificar SMS:", err);
+      return { success: false, message: err.message || "Código SMS inválido ou expirado." };
+    }
+  };
+
   const loginCoach = async (email, password) => {
     try {
       const { data, error } = await supabase.auth.signInWithPassword({ email, password });
@@ -614,7 +658,7 @@ export function AppProvider({ children }) {
     } catch (e) {}
     await supabase.auth.signOut();
     setCurrentCoach(null);
-    localStorage.removeItem('scs_current_coach'); // Limpa apenas no logout explícito
+    localStorage.removeItem('scs_current_coach');
   };
 
   const toggleAttendance = async (athleteId, date, forcedStatus = undefined) => {
@@ -743,6 +787,8 @@ export function AppProvider({ children }) {
         updateAdultRegistration,
         loginParentByCode,
         loginAdultByCode,
+        sendSmsVerification,
+        verifySmsCode,
         loginCoach,
         logoutCoach,
         toggleAttendance,
