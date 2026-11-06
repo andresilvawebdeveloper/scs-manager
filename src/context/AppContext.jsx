@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import OneSignal from 'react-onesignal';
 import { supabase } from '../services/supabaseClient';
+import { fetchAllRows, dayKey } from '../services/fetchAllRows';
 
 const AppContext = createContext();
 
@@ -276,11 +277,11 @@ export function AppProvider({ children }) {
 
   const fetchMessages = async () => {
     try {
-      const { data, error } = await supabase
+      const data = await fetchAllRows(() => supabase
         .from('messages')
         .select('*')
-        .order('created_at', { ascending: true });
-      if (error) throw error;
+        .order('created_at', { ascending: true })
+        .order('id'));
       if (data) {
         const list = data.map(normalizeMessage);
         // Notificação no dispositivo para mensagens novas que não são minhas
@@ -377,13 +378,12 @@ export function AppProvider({ children }) {
 
   const fetchAttendances = async () => {
     try {
-      const { data, error } = await supabase.from('attendances').select('*');
-      if (error) throw error;
+      const data = await fetchAllRows(() => supabase.from('attendances').select('*').order('date').order('athlete_id'));
 
       if (data) {
         const loadedMap = {};
         data.forEach((item) => {
-          const key = `${item.athlete_id}_${item.date}`;
+          const key = `${item.athlete_id}_${dayKey(item.date)}`;
           loadedMap[key] = item.status;
         });
         setAttendances(loadedMap);
@@ -395,11 +395,11 @@ export function AppProvider({ children }) {
 
   const fetchRegistrations = async () => {
     try {
-      const { data, error } = await supabase
+      const data = await fetchAllRows(() => supabase
         .from('registrations')
         .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
+        .order('created_at', { ascending: false })
+        .order('id'));
       if (data) setRegistrations(data);
     } catch (err) {
       console.error('Erro ao carregar atletas:', err.message);
@@ -408,11 +408,11 @@ export function AppProvider({ children }) {
 
   const fetchAdultRegistrations = async () => {
     try {
-      const { data, error } = await supabase
+      const data = await fetchAllRows(() => supabase
         .from('adult_registrations')
         .select('*')
-        .order('created_at', { ascending: false });
-      if (error) throw error;
+        .order('created_at', { ascending: false })
+        .order('id'));
       if (data) {
         const normalizedAdults = data.map((item) => ({
           ...item,
@@ -440,8 +440,7 @@ export function AppProvider({ children }) {
 
   const fetchEventAttendances = async () => {
     try {
-      const { data, error } = await supabase.from('event_attendances').select('*');
-      if (error) throw error;
+      const data = await fetchAllRows(() => supabase.from('event_attendances').select('*').order('event_id').order('athlete_id'));
       if (data) {
         const loadedMap = {};
         data.forEach((item) => {

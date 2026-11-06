@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../services/supabaseClient';
+import { fetchAllRows, dayKey } from '../../services/fetchAllRows';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
 import CoachChat from './CoachChat';
@@ -121,15 +122,24 @@ export default function Dashboard({ onLogout }) {
   // Justificações a ser escritas (gravadas com atraso, para não gravar a cada tecla)
   const justificationTimersRef = useRef({});
 
+  // Marcações a ser gravadas neste momento: uma leitura que chegue antes de a gravação
+  // terminar não as pode apagar do ecrã
+  const pendingAthleteRef = useRef({});
+  const pendingCoachRef = useRef({});
+  const pendingParentRef = useRef({});
+  const applyPending = (map, pending) => {
+    Object.entries(pending).forEach(([k, v]) => { if (v === null) delete map[k]; else map[k] = v; });
+    return map;
+  };
+
   const fetchAthleteAttendances = async () => {
     try {
-      const { data, error } = await supabase.from('attendances').select('*');
-      if (error) throw error;
+      const data = await fetchAllRows(() => supabase.from('attendances').select('*').order('date').order('athlete_id'));
       if (data) {
         const attMap = {};
         const justMap = {};
         data.forEach(item => {
-          const key = `${item.athlete_id || item.athleteId}_${item.date}`;
+          const key = `${item.athlete_id || item.athleteId}_${dayKey(item.date)}`;
           attMap[key] = item.status;
           if (item.justification) {
             justMap[key] = item.justification;
@@ -138,7 +148,7 @@ export default function Dashboard({ onLogout }) {
         // Substitui pelo que está na BD (inclui marcações e remoções feitas por outros treinadores),
         // mantendo as justificações que estão a ser escritas neste momento
         const editing = Object.keys(justificationTimersRef.current);
-        setLocalAttendances(attMap);
+        setLocalAttendances(applyPending(attMap, pendingAthleteRef.current));
         setAttendanceJustifications((prev) => {
           const next = { ...justMap };
           editing.forEach((k) => { if (prev[k] !== undefined) next[k] = prev[k]; });
@@ -152,14 +162,13 @@ export default function Dashboard({ onLogout }) {
 
   const fetchCoachAttendances = async () => {
     try {
-      const { data, error } = await supabase.from('coach_attendances').select('*');
-      if (error) throw error;
+      const data = await fetchAllRows(() => supabase.from('coach_attendances').select('*').order('date').order('coach_name'));
       if (data) {
         const map = {};
         data.forEach(item => {
-          map[`${item.coach_name}_${item.date}`] = item.status;
+          map[`${item.coach_name}_${dayKey(item.date)}`] = item.status;
         });
-        setCoachAttendances(map);
+        setCoachAttendances(applyPending(map, pendingCoachRef.current));
       }
     } catch (err) {
       console.error("Erro ao carregar presenças de treinadores:", err.message);
@@ -168,14 +177,13 @@ export default function Dashboard({ onLogout }) {
 
   const fetchParentAttendances = async () => {
     try {
-      const { data, error } = await supabase.from('parent_attendances').select('*');
-      if (error) throw error;
+      const data = await fetchAllRows(() => supabase.from('parent_attendances').select('*').order('date').order('parent_id'));
       if (data) {
         const map = {};
         data.forEach(item => {
-          map[`${item.parent_id || item.parentId}_${item.date}`] = item.status;
+          map[`${item.parent_id || item.parentId}_${dayKey(item.date)}`] = item.status;
         });
-        setParentAttendances(map);
+        setParentAttendances(applyPending(map, pendingParentRef.current));
       }
     } catch (err) {
       console.error("Erro ao carregar presenças de pais/adultos:", err.message);
@@ -191,24 +199,27 @@ export default function Dashboard({ onLogout }) {
       ...prev,
       [key]: newStatus
     }));
+    pendingCoachRef.current[key] = newStatus;
 
     try {
-      if (newStatus === null) {
-        await supabase
+      const { error } = newStatus === null
+        ? await supabase
           .from('coach_attendances')
           .delete()
           .eq('coach_name', coachName)
-          .eq('date', coachSelectedDate);
-      } else {
-        await supabase
+          .eq('date', coachSelectedDate)
+        : await supabase
           .from('coach_attendances')
           .upsert([
             { coach_name: coachName, date: coachSelectedDate, status: newStatus }
           ], { onConflict: 'coach_name,date' });
-      }
+      if (error) throw error;
     } catch (err) {
       console.error("Erro ao atualizar presença do treinador na BD:", err.message);
+      setCoachAttendances((prev) => ({ ...prev, [key]: currentStatus }));
       alert("Erro ao guardar presença na base de dados: " + err.message);
+    } finally {
+      delete pendingCoachRef.current[key];
     }
   };
 
@@ -221,24 +232,27 @@ export default function Dashboard({ onLogout }) {
       ...prev,
       [key]: newStatus
     }));
+    pendingParentRef.current[key] = newStatus;
 
     try {
-      if (newStatus === null) {
-        await supabase
+      const { error } = newStatus === null
+        ? await supabase
           .from('parent_attendances')
           .delete()
           .eq('parent_id', parentId)
-          .eq('date', parentSelectedDate);
-      } else {
-        await supabase
+          .eq('date', parentSelectedDate)
+        : await supabase
           .from('parent_attendances')
           .upsert([
             { parent_id: parentId, date: parentSelectedDate, status: newStatus }
           ], { onConflict: 'parent_id,date' });
-      }
+      if (error) throw error;
     } catch (err) {
       console.error("Erro ao atualizar presença do adulto/pai na BD:", err.message);
+      setParentAttendances((prev) => ({ ...prev, [key]: currentStatus }));
       alert("Erro ao guardar presença na base de dados: " + err.message);
+    } finally {
+      delete pendingParentRef.current[key];
     }
   };
 
@@ -338,6 +352,7 @@ export default function Dashboard({ onLogout }) {
       ...prev,
       [key]: newStatus
     }));
+    pendingAthleteRef.current[key] = newStatus;
 
     try {
       const { error } = newStatus === null
@@ -361,6 +376,8 @@ export default function Dashboard({ onLogout }) {
       console.error("Erro ao sincronizar presença na BD:", err.message);
       setLocalAttendances((prev) => ({ ...prev, [key]: currentStatus }));
       alert('A presença não foi gravada: ' + err.message);
+    } finally {
+      delete pendingAthleteRef.current[key];
     }
   };
 
