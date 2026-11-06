@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import OneSignal from 'react-onesignal';
 import { supabase } from '../services/supabaseClient';
 
@@ -47,6 +47,22 @@ export function AppProvider({ children }) {
   const [adultClasses, setAdultClasses] = useState([]);
 
   const [messages, setMessages] = useState([]);
+
+  // Perfis de treinador (lista pública para todos com sessão) e equipa completa (só treinadores)
+  const [coachProfiles, setCoachProfiles] = useState([]);
+  const [coachTeam, setCoachTeam] = useState([]);
+
+  // Família com sessão iniciada (encarregado ou aluno adulto) — para saber que mensagens são "minhas"
+  const [memberEmail, setMemberEmail] = useState(null);
+
+  // Mensagens lidas por conversa (guardado no dispositivo)
+  const [readMap, setReadMap] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('scs_chat_read') || '{}'); } catch (e) { return {}; }
+  });
+
+  // refs para os callbacks de tempo real (evitam valores desatualizados)
+  const identityRef = useRef({ coachId: null, memberEmail: null });
+  const knownMessageIdsRef = useRef(null);
 
   // Função auxiliar para associar o utilizador ao OneSignal de forma persistente
   const setupOneSignalUser = async (user) => {
@@ -110,6 +126,7 @@ export function AppProvider({ children }) {
     fetchAdultClasses();
     fetchAttendances();
     fetchMessages();
+    fetchCoachProfiles();
   };
 
   const clearPrivateData = () => {
@@ -119,6 +136,9 @@ export function AppProvider({ children }) {
     setAdultClasses([]);
     setAttendances({});
     setMessages([]);
+    setCoachProfiles([]);
+    setCoachTeam([]);
+    knownMessageIdsRef.current = null;
   };
 
   // Carregar dados iniciais e subscrever a alterações
@@ -162,12 +182,23 @@ export function AppProvider({ children }) {
       })
       .subscribe();
 
+    // Recurso caso o tempo real falhe: verifica mensagens novas a cada 30 s
+    const poll = setInterval(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user) fetchMessages();
+    }, 30000);
+
     return () => {
       authListener?.subscription?.unsubscribe();
       supabase.removeChannel(attendancesSubscription);
       supabase.removeChannel(messagesSubscription);
+      clearInterval(poll);
     };
   }, []);
+
+  useEffect(() => {
+    identityRef.current = { coachId: currentCoach?.id || null, memberEmail: memberEmail ? memberEmail.toLowerCase() : null };
+  }, [currentCoach, memberEmail]);
 
   const fetchCoachProfile = async (authUser) => {
     try {
@@ -181,9 +212,9 @@ export function AppProvider({ children }) {
         console.error('Erro ao procurar perfil na tabela coaches:', error.message);
       }
 
-      // Só é treinador quem tem linha na tabela coaches (encarregados entram por SMS e não têm)
-      if (!coachProfile) {
-        setCurrentCoach(null);
+      // Só é treinador quem tem perfil ativo na tabela coaches (encarregados entram por SMS e não têm)
+      if (!coachProfile || coachProfile.active === false) {
+        setCurrentCoach(authUser.email ? { id: authUser.id, email: authUser.email, noProfile: true } : null);
         localStorage.removeItem('scs_current_coach');
         return;
       }
@@ -191,7 +222,11 @@ export function AppProvider({ children }) {
       const coachData = {
         id: authUser.id,
         email: authUser.email,
-        name: coachProfile?.name || coachProfile?.email || authUser.email,
+        name: coachProfile?.name || '',
+        displayName: coachProfile?.name || coachProfile?.email || authUser.email,
+        bio: coachProfile?.bio || '',
+        photo_url: coachProfile?.photo_url || '',
+        classes: Array.isArray(coachProfile?.classes) ? coachProfile.classes : [],
         role: coachProfile?.role || (authUser.email === 'joana.meireles@gmail.com' ? 'admin' : 'coach'),
       };
       
@@ -202,12 +237,37 @@ export function AppProvider({ children }) {
     }
   };
 
-  const normalizeMessage = (m) => ({
-    ...m,
-    senderName: m.sender_name || m.senderName || m.sender,
-    senderEmail: m.sender_email || m.senderEmail || '',
-    recipientEmail: m.recipient_email || m.recipientEmail || 'all',
-  });
+  const normalizeMessage = (m) => {
+    const familyEmail = (m.family_email || (m.sender === 'Coach' ? m.recipient_email : m.sender_email) || '').toLowerCase() || null;
+    return {
+      ...m,
+      senderName: m.sender_name || m.senderName || m.sender,
+      senderEmail: m.sender_email || m.senderEmail || '',
+      recipientEmail: m.recipient_email || m.recipientEmail || 'all',
+      familyEmail,
+      coachId: m.coach_id || null,
+      senderCoachId: m.sender_coach_id || null,
+    };
+  };
+
+  // Chave da conversa: família + treinador (ou "club" = caixa do clube, todos os treinadores)
+  const conversationKey = (familyEmail, coachId) => `${(familyEmail || '').toLowerCase()}|${coachId || 'club'}`;
+  const messageConversationKey = (m) => conversationKey(m.familyEmail, m.coachId);
+
+  const isMyMessage = (m, identity = identityRef.current) => {
+    if (m.sender === 'Coach') return !!identity.coachId && String(m.senderCoachId) === String(identity.coachId);
+    return !!identity.memberEmail && (m.senderEmail || '').toLowerCase() === identity.memberEmail;
+  };
+
+  const showMessageNotification = (m) => {
+    try {
+      if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return;
+      const title = m.sender === 'Coach' && m.familyEmail === 'all'
+        ? `📢 Comunicado do clube (${m.senderName})`
+        : `💬 Nova mensagem de ${m.senderName || (m.sender === 'Coach' ? 'Treinador' : 'Encarregado')}`;
+      new Notification(title, { body: String(m.text || '').slice(0, 140), icon: '/logo.png', tag: `scs-msg-${m.id}` });
+    } catch (e) {}
+  };
 
   const fetchMessages = async () => {
     try {
@@ -216,9 +276,97 @@ export function AppProvider({ children }) {
         .select('*')
         .order('created_at', { ascending: true });
       if (error) throw error;
-      if (data) setMessages(data.map(normalizeMessage));
+      if (data) {
+        const list = data.map(normalizeMessage);
+        // Notificação no dispositivo para mensagens novas que não são minhas
+        const known = knownMessageIdsRef.current;
+        if (known) {
+          list.filter((m) => !known.has(String(m.id)) && !isMyMessage(m)).forEach(showMessageNotification);
+        }
+        knownMessageIdsRef.current = new Set(list.map((m) => String(m.id)));
+        setMessages(list);
+      }
     } catch (err) {
       console.error('Erro ao carregar mensagens:', err.message);
+    }
+  };
+
+  const markConversationRead = (key) => {
+    setReadMap((prev) => {
+      const next = { ...prev, [key]: new Date().toISOString() };
+      try { localStorage.setItem('scs_chat_read', JSON.stringify(next)); } catch (e) {}
+      return next;
+    });
+  };
+
+  const unreadCount = (key) => {
+    const since = readMap[key] ? new Date(readMap[key]).getTime() : 0;
+    return messages.filter((m) =>
+      messageConversationKey(m) === key && !isMyMessage(m) &&
+      new Date(m.created_at || 0).getTime() > since
+    ).length;
+  };
+
+  // ---------- Perfis de treinador ----------
+  const fetchCoachProfiles = async () => {
+    try {
+      const { data, error } = await supabase.rpc('scs_list_coaches');
+      if (error) throw error;
+      setCoachProfiles(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Erro ao carregar treinadores:', err.message);
+    }
+  };
+
+  const fetchCoachTeam = async () => {
+    try {
+      const { data, error } = await supabase.from('coaches').select('*').order('name', { ascending: true });
+      if (error) throw error;
+      setCoachTeam(data || []);
+    } catch (err) {
+      console.error('Erro ao carregar equipa técnica:', err.message);
+    }
+  };
+
+  const updateMyCoachProfile = async (fields) => {
+    if (!currentCoach?.id) return { success: false, message: 'Sem sessão de treinador.' };
+    const payload = {};
+    ['name', 'bio', 'photo_url', 'classes'].forEach((k) => { if (fields[k] !== undefined) payload[k] = fields[k]; });
+    if (payload.name !== undefined) payload.name = String(payload.name).trim();
+    try {
+      const { error } = await supabase.from('coaches').update(payload).eq('id', currentCoach.id);
+      if (error) throw error;
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) await fetchCoachProfile(user);
+      fetchCoachProfiles();
+      fetchCoachTeam();
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  const addCoachByEmail = async (email, name) => {
+    try {
+      const { error } = await supabase.rpc('scs_add_coach', { p_email: email, p_name: name || null });
+      if (error) throw error;
+      await fetchCoachTeam();
+      fetchCoachProfiles();
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
+    }
+  };
+
+  const setCoachActive = async (coachId, active) => {
+    try {
+      const { error } = await supabase.from('coaches').update({ active }).eq('id', coachId);
+      if (error) throw error;
+      await fetchCoachTeam();
+      fetchCoachProfiles();
+      return { success: true };
+    } catch (err) {
+      return { success: false, message: err.message };
     }
   };
 
@@ -673,6 +821,8 @@ export function AppProvider({ children }) {
       const { data, error } = await supabase.rpc('scs_get_my_registration', { p_code: code.trim(), p_kind: kind });
       if (error) throw error;
       if (!data) return { success: false, message: 'Não foi possível abrir a ficha. O telemóvel validado não corresponde a esta inscrição.' };
+      setMemberEmail(data.email || null);
+      identityRef.current = { ...identityRef.current, memberEmail: (data.email || '').toLowerCase() || null };
       return { success: true, registration: data };
     } catch (err) {
       console.error('Erro ao obter ficha:', err);
@@ -685,6 +835,7 @@ export function AppProvider({ children }) {
     try {
       await supabase.auth.signOut();
     } catch (e) {}
+    setMemberEmail(null);
     clearPrivateData();
   };
 
@@ -848,26 +999,40 @@ export function AppProvider({ children }) {
   const setEventPresence = (eventId, athleteId, present) =>
     saveEventAttendanceField(eventId, athleteId, 'present', present === null ? null : Boolean(present));
 
-  const sendMessage = async (msgObj) => {
+  // Envia uma mensagem e pede ao servidor as notificações (push + email) dos destinatários.
+  //   familyEmail: email da família da conversa ('all' = comunicado geral)
+  //   coachId:     treinador da conversa privada (null = caixa do clube)
+  const sendMessage = async ({ text, familyEmail, coachId = null, senderEmail, senderName }) => {
+    const fromCoach = !!currentCoach?.id && !currentCoach.noProfile;
+    const clean = String(text || '').trim();
+    if (!clean) return { success: false, message: 'Mensagem vazia.' };
+    const family = (fromCoach ? familyEmail : senderEmail || familyEmail || '').toLowerCase();
     const row = {
-      sender: msgObj.sender,
-      sender_name: msgObj.senderName || msgObj.sender,
-      sender_email: msgObj.senderEmail || null,
-      recipient_email: msgObj.recipientEmail || 'all',
-      text: msgObj.text || msgObj.message || '',
-      timestamp: msgObj.timestamp || new Date().toISOString(),
-      date: msgObj.date || new Date().toLocaleDateString('pt-PT')
+      sender: fromCoach ? 'Coach' : 'Parent',
+      sender_name: fromCoach ? (currentCoach.name || currentCoach.displayName || 'Treinador') : (senderName || 'Encarregado'),
+      sender_email: fromCoach ? null : family,
+      sender_coach_id: fromCoach ? currentCoach.id : null,
+      recipient_email: fromCoach ? family : 'Coach',
+      family_email: family,
+      coach_id: coachId || null,
+      text: clean,
+      timestamp: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
+      date: new Date().toLocaleDateString('pt-PT'),
     };
-    // mostra logo a mensagem; a lista é depois recarregada da base de dados
-    setMessages((prev) => [...prev, normalizeMessage({ ...row, id: `local_${Date.now()}` })]);
+    const tempId = `local_${Date.now()}`;
+    setMessages((prev) => [...prev, normalizeMessage({ ...row, id: tempId, created_at: new Date().toISOString() })]);
     try {
-      const { error } = await supabase.from('messages').insert([row]);
+      const { data, error } = await supabase.from('messages').insert([row]).select('id').single();
       if (error) throw error;
+      if (knownMessageIdsRef.current) knownMessageIdsRef.current.add(String(data.id));
+      // As notificações não bloqueiam o envio
+      supabase.functions.invoke('notify-new-message', { body: { message_id: data.id } })
+        .catch((e) => console.error('Notificação não enviada:', e));
       await fetchMessages();
-      return { success: true };
+      return { success: true, id: data.id };
     } catch (err) {
       console.error('Erro ao enviar mensagem:', err);
-      await fetchMessages();
+      setMessages((prev) => prev.filter((m) => m.id !== tempId));
       return { success: false, message: err.message || 'Erro ao enviar mensagem.' };
     }
   };
@@ -901,8 +1066,22 @@ export function AppProvider({ children }) {
         fetchEvents,
         toggleEventAttendance,
         setEventPresence,
+        fetchEventAttendances,
         sendMessage,
         fetchMessages,
+        coachProfiles,
+        fetchCoachProfiles,
+        coachTeam,
+        fetchCoachTeam,
+        updateMyCoachProfile,
+        addCoachByEmail,
+        setCoachActive,
+        conversationKey,
+        messageConversationKey,
+        isMyMessage,
+        markConversationRead,
+        unreadCount,
+        memberEmail,
         getMyRegistration,
         updateMyRegistration,
         logoutMember,

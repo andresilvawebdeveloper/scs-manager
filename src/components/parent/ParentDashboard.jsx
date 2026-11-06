@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import FamilyChat from '../common/FamilyChat';
 import { supabase } from '../../services/supabaseClient';
 
 function EventCard({ ev, registration, currentAthleteClassNorm, normalizeClassName }) {
@@ -165,8 +166,18 @@ export default function ParentDashboard({ registration, onLogout }) {
     messages,
     sendMessage,
     fetchMessages,
-    logoutMember
+    logoutMember,
+    coachProfiles,
+    conversationKey,
+    unreadCount
   } = useApp();
+
+  // Mensagens por ler (todas as conversas desta família)
+  const chatUnread = (() => {
+    const em = (registration.email || registration.parentEmail || registration.parent_email || '').toLowerCase();
+    const keys = ['all|club', conversationKey(em, null), ...(coachProfiles || []).map((c) => conversationKey(em, c.id))];
+    return keys.reduce((n, k) => n + unreadCount(k), 0);
+  })();
 
   const handleLogout = async () => {
     await logoutMember();
@@ -184,8 +195,6 @@ export default function ParentDashboard({ registration, onLogout }) {
   const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
 
   // Estado do Chat
-  const [chatText, setChatText] = useState('');
-  const [isSendingChat, setIsSendingChat] = useState(false);
 
   const parentEmail = registration.email || registration.parentEmail || registration.parent_email;
 
@@ -223,11 +232,6 @@ export default function ParentDashboard({ registration, onLogout }) {
     return classesList.some((tc) => normalizeClassName(tc) === currentAthleteClassNorm);
   });
 
-  // Filtrar conversas: Mensagens do Canal Geral + Mensagens Privadas deste pai
-  const allMessagesList = messages || [];
-  const myChatMessages = allMessagesList.filter(
-    (m) => m.recipientEmail === 'all' || m.recipientEmail === parentEmail || m.senderEmail === parentEmail
-  );
 
   const sizeOptions = [
     'Não pretendo / Não preciso',
@@ -315,54 +319,6 @@ export default function ParentDashboard({ registration, onLogout }) {
 
   const currentPhotoUrl = previewPhotoUrl || formData.photo_url || formData.photoUrl;
 
-  // Enviar Mensagem no Chat do Encarregado
-  const handleSendChatMessage = async (e) => {
-    e.preventDefault();
-    if (!chatText.trim()) return;
-
-    setIsSendingChat(true);
-
-    const msgObj = {
-      id: Date.now().toString(),
-      sender: 'Parent',
-      senderName: registration.parent_name || registration.parentName || formData.parentName || 'Encarregado',
-      senderEmail: parentEmail,
-      recipientEmail: 'Coach',
-      text: chatText.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      date: new Date().toLocaleDateString('pt-PT')
-    };
-
-    const result = sendMessage ? await sendMessage(msgObj) : { success: false };
-    if (!result.success) {
-      alert('A mensagem não foi enviada. Tente novamente.');
-      setIsSendingChat(false);
-      return;
-    }
-
-    // Aviso por email ao clube (só se o endereço estiver configurado em VITE_COACH_NOTIFY_EMAIL)
-    const coachNotifyEmail = import.meta.env.VITE_COACH_NOTIFY_EMAIL;
-    if (coachNotifyEmail) {
-      try {
-        const parentName = registration.parent_name || registration.parentName || 'Encarregado';
-        await supabase.functions.invoke('send-club-email', {
-          body: {
-            email: coachNotifyEmail,
-            senderName: parentName,
-            athleteName: registration.athlete_name || registration.athleteName || formData.athleteName,
-            subject: `💬 Mensagem do Encarregado (${parentName})`,
-            message: msgObj.text,
-            type: 'parent_chat'
-          }
-        });
-      } catch (err) {
-        console.error('Erro no envio de email ao treinador:', err);
-      }
-    }
-
-    setChatText('');
-    setIsSendingChat(false);
-  };
 
   return (
     <div className="min-h-screen bg-gray-50 pb-12">
@@ -406,7 +362,9 @@ export default function ParentDashboard({ registration, onLogout }) {
               activeTab === 'chat' ? 'bg-clubRed text-white shadow' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            Chat 💬
+            Chat 💬{chatUnread > 0 && (
+              <span data-testid="chat-badge" className="ml-1 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-white text-clubRed text-[10px] font-bold items-center justify-center align-middle border border-red-200">{chatUnread}</span>
+            )}
           </button>
         </div>
       </div>
@@ -682,70 +640,8 @@ export default function ParentDashboard({ registration, onLogout }) {
 
         {/* ABA 3: CHAT COM O TREINADOR */}
         {activeTab === 'chat' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col h-[500px] overflow-hidden">
-            
-            <div className="p-4 bg-gray-50 border-b border-gray-200">
-              <h2 className="font-bold text-xs text-gray-800">💬 Chat com o Treinador do Clube</h2>
-              <p className="text-[10px] text-gray-500">Histórico de conversas privadas e comunicados gerais.</p>
-            </div>
-
-            {/* Mensagens */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50">
-              {myChatMessages.length === 0 ? (
-                <div className="text-center py-12 text-xs text-gray-400">
-                  Nenhuma mensagem trocada ainda. Escreva uma mensagem abaixo!
-                </div>
-              ) : (
-                myChatMessages.map((msg, idx) => {
-                  const isParent = msg.sender === 'Parent';
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex flex-col ${isParent ? 'items-end' : 'items-start'}`}
-                    >
-                      <div
-                        className={`max-w-[80%] p-3 rounded-2xl text-xs space-y-1 ${
-                          isParent
-                            ? 'bg-clubRed text-white rounded-tr-none'
-                            : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none shadow-sm'
-                        }`}
-                      >
-                        <span className="text-[10px] font-bold block opacity-80">
-                          {isParent ? 'Você' : 'Treinador'}
-                        </span>
-                        <p className="leading-relaxed whitespace-pre-line">{msg.text || msg.message}</p>
-                        <span className="text-[9px] block text-right opacity-70">
-                          {msg.timestamp || msg.date}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            {/* Form de Envio */}
-            <form onSubmit={handleSendChatMessage} className="p-3 bg-white border-t border-gray-200 flex space-x-2">
-              <input
-                type="text"
-                placeholder="Escreva a mensagem para o treinador..."
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                className="flex-1 p-3 border border-gray-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-clubRed"
-                required
-              />
-              <button
-                type="submit"
-                disabled={isSendingChat}
-                className="px-5 py-3 bg-clubRed hover:bg-red-700 text-white rounded-xl text-xs font-bold transition shadow"
-              >
-                Enviar
-              </button>
-            </form>
-
-          </div>
+          <FamilyChat myEmail={registration.email || registration.parentEmail || registration.parent_email} myName={registration.parent_name || registration.parentName || 'Encarregado'} accent="bg-clubRed" />
         )}
-
       </main>
     </div>
   );

@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
 import { supabase } from '../../services/supabaseClient';
 import ExcelJS from 'exceljs';
 import { saveAs } from 'file-saver';
+import CoachChat from './CoachChat';
+import CoachProfile from './CoachProfile';
 
 export default function Dashboard({ onLogout }) {
   const { 
@@ -18,12 +20,15 @@ export default function Dashboard({ onLogout }) {
     deleteEvent,
     eventAttendances,
     setEventPresence,
+    fetchEventAttendances,
     adultRegistrations,
     fetchAdultRegistrations,
     updateAdultRegistration,
     messages,
-    sendMessage,
     fetchMessages,
+    coachProfiles,
+    unreadCount,
+    messageConversationKey,
     adultClasses,
     addAdultClass,
     deleteAdultClass,
@@ -46,33 +51,28 @@ export default function Dashboard({ onLogout }) {
     fetchAthleteAttendances();
     fetchParentAttendances();
 
-    // Subscrição Supabase Realtime para escutar novas mensagens em tempo real (Estilo WhatsApp)
-    const messagesChannel = supabase
-      .channel('public:messages')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, (payload) => {
-        // Se houver uma função no contexto para atualizar as mensagens, podemos chamá-la ou gerir localmente
-        if (sendMessage && typeof sendMessage === 'function') {
-          // Opcional: injetar a mensagem recebida se o contexto suportar, ou recarregar
-        }
-        // Disparar notificação visual estilo push se a mensagem não for do próprio treinador
-        if (payload.new && payload.new.sender !== 'Coach') {
-          if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('💬 Nova mensagem de ' + (payload.new.sender_name || payload.new.senderName || 'Encarregado'), {
-              body: payload.new.text || payload.new.message,
-              icon: '/logo.png'
-            });
-          }
-        }
-      })
-      .subscribe();
-
     // Pedir permissão para notificações push nativas do browser se ainda não foi concedida
     if ('Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
 
+    // Presenças sempre atualizadas entre treinadores: tempo real (se ativo no Supabase)
+    // e, como recurso, nova leitura a cada 15 segundos
+    const refreshAttendances = () => {
+      fetchAthleteAttendances();
+      fetchCoachAttendances();
+      fetchParentAttendances();
+      fetchEventAttendances && fetchEventAttendances();
+    };
+    const channel = supabase.channel('coach-dashboard-attendances');
+    ['attendances', 'coach_attendances', 'parent_attendances', 'event_attendances'].forEach((table) => {
+      channel.on('postgres_changes', { event: '*', schema: 'public', table }, refreshAttendances);
+    });
+    channel.subscribe();
+    const poll = setInterval(refreshAttendances, 15000);
     return () => {
-      supabase.removeChannel(messagesChannel);
+      clearInterval(poll);
+      supabase.removeChannel(channel);
     };
   }, []);
 
@@ -104,17 +104,13 @@ export default function Dashboard({ onLogout }) {
   const [newAdultClassMaxSeats, setNewAdultClassMaxSeats] = useState(15);
   const [newAdultClassDaysBefore, setNewAdultClassDaysBefore] = useState(1);
 
-  const availableCoaches = [
-    'Joana', 'Susana', 'Ricardo', 'Pedro', 'Marta', 'Sofia', 'Inês', 'Maria'
-  ];
+  // Nomes dos treinadores: vêm dos perfis (separador Perfil). Lista antiga só se ainda ninguém tiver perfil.
+  const profileNames = (coachProfiles || []).map((c) => c.name).filter(Boolean);
+  const availableCoaches = profileNames.length > 0
+    ? profileNames
+    : ['Joana', 'Susana', 'Ricardo', 'Pedro', 'Marta', 'Sofia', 'Inês', 'Maria'];
 
-  const [chatTarget, setChatTarget] = useState('all');
-  const [chatText, setChatText] = useState('');
-  const [isSendingChat, setIsSendingChat] = useState(false);
-
-  const [profileEmail, setProfileEmail] = useState(currentCoach?.email || '');
-  const [profilePassword, setProfilePassword] = useState('');
-  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
+  const [chatTarget, setChatTarget] = useState(null);
 
   const [showEventResponsesModal, setShowEventResponsesModal] = useState(false);
   const [newResponsesSummary, setNewResponsesSummary] = useState([]);
@@ -122,17 +118,8 @@ export default function Dashboard({ onLogout }) {
   const [attendanceJustifications, setAttendanceJustifications] = useState({});
   const [localAttendances, setLocalAttendances] = useState({});
 
-  useEffect(() => {
-    if (currentCoach?.email) {
-      setProfileEmail(currentCoach.email);
-    }
-  }, [currentCoach]);
-
-  useEffect(() => {
-    if (attendances) {
-      setLocalAttendances(attendances);
-    }
-  }, [attendances]);
+  // Justificações a ser escritas (gravadas com atraso, para não gravar a cada tecla)
+  const justificationTimersRef = useRef({});
 
   const fetchAthleteAttendances = async () => {
     try {
@@ -148,8 +135,15 @@ export default function Dashboard({ onLogout }) {
             justMap[key] = item.justification;
           }
         });
-        setLocalAttendances(prev => ({ ...prev, ...attMap }));
-        setAttendanceJustifications(prev => ({ ...prev, ...justMap }));
+        // Substitui pelo que está na BD (inclui marcações e remoções feitas por outros treinadores),
+        // mantendo as justificações que estão a ser escritas neste momento
+        const editing = Object.keys(justificationTimersRef.current);
+        setLocalAttendances(attMap);
+        setAttendanceJustifications((prev) => {
+          const next = { ...justMap };
+          editing.forEach((k) => { if (prev[k] !== undefined) next[k] = prev[k]; });
+          return next;
+        });
       }
     } catch (err) {
       console.error("Erro ao carregar presenças de atletas:", err.message);
@@ -345,31 +339,28 @@ export default function Dashboard({ onLogout }) {
       [key]: newStatus
     }));
 
-    if (toggleAttendance) {
-      toggleAttendance(athleteId, selectedDate, newStatus);
-    }
-
     try {
-      if (newStatus === null) {
-        await supabase
+      const { error } = newStatus === null
+        ? await supabase
           .from('attendances')
           .delete()
           .eq('athlete_id', athleteId)
-          .eq('date', selectedDate);
-      } else {
-        await supabase
+          .eq('date', selectedDate)
+        : await supabase
           .from('attendances')
           .upsert([
-            { 
-              athlete_id: athleteId, 
-              date: selectedDate, 
-              status: newStatus, 
-              justification: newStatus === 'justificado' ? currentJustification : null 
+            {
+              athlete_id: athleteId,
+              date: selectedDate,
+              status: newStatus,
+              justification: newStatus === 'justificado' ? currentJustification : null
             }
           ], { onConflict: 'athlete_id,date' });
-      }
+      if (error) throw error;
     } catch (err) {
       console.error("Erro ao sincronizar presença na BD:", err.message);
+      setLocalAttendances((prev) => ({ ...prev, [key]: currentStatus }));
+      alert('A presença não foi gravada: ' + err.message);
     }
   };
 
@@ -381,21 +372,30 @@ export default function Dashboard({ onLogout }) {
     }));
 
     const currentStatus = localAttendances[key] || 'justificado';
+    const date = selectedDate;
 
-    try {
-      await supabase
-        .from('attendances')
-        .upsert([
-          { 
-            athlete_id: athleteId, 
-            date: selectedDate, 
-            status: currentStatus, 
-            justification: text 
-          }
-        ], { onConflict: 'athlete_id,date' });
-    } catch (err) {
-      console.error("Erro ao guardar justificação na BD:", err.message);
-    }
+    // Grava 700 ms depois da última tecla
+    clearTimeout(justificationTimersRef.current[key]);
+    justificationTimersRef.current[key] = setTimeout(async () => {
+      try {
+        const { error } = await supabase
+          .from('attendances')
+          .upsert([
+            {
+              athlete_id: athleteId,
+              date,
+              status: currentStatus,
+              justification: text
+            }
+          ], { onConflict: 'athlete_id,date' });
+        if (error) throw error;
+      } catch (err) {
+        console.error("Erro ao guardar justificação na BD:", err.message);
+        alert('A justificação não foi gravada: ' + err.message);
+      } finally {
+        delete justificationTimersRef.current[key];
+      }
+    }, 700);
   };
 
   const handleAcceptWithClass = async (regId) => {
@@ -590,120 +590,41 @@ export default function Dashboard({ onLogout }) {
     setNewEventCoaches([]);
   };
 
-  const handleSendChatMessage = async (e) => {
-    e.preventDefault();
-    if (!chatText.trim()) return;
-
-    setIsSendingChat(true);
-
-    const msgObj = {
-      id: Date.now().toString(),
-      sender: 'Coach',
-      recipientEmail: chatTarget,
-      text: chatText.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      date: new Date().toLocaleDateString('pt-PT')
-    };
-
-    const result = sendMessage ? await sendMessage(msgObj) : { success: false };
-    if (!result.success) {
-      alert('A mensagem não foi enviada: ' + (result.message || 'erro desconhecido'));
-      setIsSendingChat(false);
-      return;
-    }
-
-    try {
-
-      let recipients = [];
-      if (chatTarget === 'all') {
-        recipients = acceptedList
-          .map((r) => r.email || r.parentEmail || r.parent_email)
-          .filter(Boolean);
-        recipients = [...new Set(recipients)];
-      } else {
-        recipients = [chatTarget];
-      }
-
-      for (const email of recipients) {
-        const targetAthlete = acceptedList.find(
-          (r) => (r.email || r.parentEmail || r.parent_email) === email
-        );
-
-        await supabase.functions.invoke('send-club-email', {
-          body: {
-            email,
-            subject: '💬 Nova mensagem do Treinador',
-            message: chatText,
-            athleteName: targetAthlete ? (targetAthlete.athleteName || targetAthlete.athlete_name || targetAthlete.fullName) : 'Clube',
-            type: 'chat_notification'
-          }
-        });
-      }
-    } catch (err) {
-      console.error('Notificação por email falhou:', err);
-    }
-
-    setChatText('');
-    setIsSendingChat(false);
-  };
-
-  const handleUpdateCoachProfile = async (e) => {
-    e.preventDefault();
-    setIsUpdatingProfile(true);
-
-    try {
-      const updates = {};
-      
-      if (profileEmail && profileEmail !== currentCoach?.email) {
-        updates.email = profileEmail;
-      }
-      if (profilePassword.trim()) {
-        if (profilePassword.length < 6) {
-          alert('A nova password deve conter pelo menos 6 caracteres.');
-          setIsUpdatingProfile(false);
-          return;
-        }
-        updates.password = profilePassword;
-      }
-
-      if (Object.keys(updates).length === 0) {
-        alert('Nenhuma alteração detetada.');
-        setIsUpdatingProfile(false);
-        return;
-      }
-
-      const { error } = await supabase.auth.updateUser(updates);
-
-      if (error) {
-        throw error;
-      }
-
-      if (updates.email && currentCoach?.id) {
-        await supabase
-          .from('coaches')
-          .update({ email: updates.email })
-          .eq('id', currentCoach.id);
-      }
-
-      alert('Dados atualizados com sucesso! ' + (updates.email ? 'Se alterou o email, confirme o novo endereço na caixa de entrada.' : ''));
-      setProfilePassword('');
-    } catch (err) {
-      console.error('Erro ao atualizar perfil:', err.message);
-      alert('Erro ao atualizar perfil: ' + err.message);
-    } finally {
-      setIsUpdatingProfile(false);
-    }
-  };
-
   const handleOpenPrivateChat = (email) => {
     setChatTarget(email);
     setActiveTab('communication');
   };
 
-  const allMessagesList = messages || [];
-  const currentChatMessages = allMessagesList.filter(
-    (m) => chatTarget === 'all' ? m.recipientEmail === 'all' : (m.recipientEmail === chatTarget || m.senderEmail === chatTarget || m.recipient_email === chatTarget)
-  );
+  // Famílias para o chat: encarregados (agrupados por email) e alunos adultos
+  const chatFamilies = (() => {
+    const map = {};
+    acceptedList.forEach((a) => {
+      const email = (a.email || a.parentEmail || a.parent_email || '').toLowerCase();
+      if (!email) return;
+      const athlete = a.athleteName || a.athlete_name || a.fullName;
+      if (!map[email]) map[email] = { email, parent: a.parentName || a.parent_name || 'Encarregado', athletes: [], adult: false };
+      map[email].athletes.push(athlete);
+    });
+    acceptedAdultsList.forEach((a) => {
+      const email = (a.email || '').toLowerCase();
+      if (!email) return;
+      if (!map[email]) map[email] = { email, parent: a.full_name || a.fullName, athletes: [], adult: true };
+      else map[email].adult = true;
+    });
+    return Object.values(map)
+      .map((f) => ({
+        email: f.email,
+        label: `${f.parent} · ${[f.athletes.length ? 'EE de ' + f.athletes.join(', ') : null, f.adult ? 'Aulas de adultos' : null].filter(Boolean).join(' · ')}`,
+      }))
+      .sort((a, b) => a.label.localeCompare(b.label));
+  })();
+
+  const totalUnread = (() => {
+    const keys = new Set((messages || []).map((m) => messageConversationKey(m)));
+    let n = 0;
+    keys.forEach((k) => { n += unreadCount(k); });
+    return n;
+  })();
 
   const rawGroupedAcceptedAthletes = acceptedList.reduce((acc, athlete) => {
     const className = athlete.assignedClass || athlete.assigned_class || 'Flame';
@@ -1101,6 +1022,13 @@ export default function Dashboard({ onLogout }) {
         </div>
       </header>
 
+      {currentCoach?.noProfile && (
+        <div data-testid="no-profile" className="max-w-6xl mx-auto mt-4 mx-4 bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded-2xl text-xs font-medium">
+          ⚠️ A sua conta ({currentCoach.email}) não tem perfil de treinador ativo, por isso não vê dados do clube.
+          Peça ao administrador para o acrescentar em <strong>Perfil → Equipa técnica</strong>.
+        </div>
+      )}
+
       {/* Estatísticas Rápidas */}
       <div className="max-w-4xl mx-auto px-4 mt-6">
         <div className="grid grid-cols-4 gap-2 sm:gap-3">
@@ -1192,7 +1120,9 @@ export default function Dashboard({ onLogout }) {
               activeTab === 'communication' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            Chat 💬
+            Chat 💬{totalUnread > 0 && (
+              <span data-testid="chat-badge" className="ml-1 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-white text-clubRed text-[10px] font-bold items-center justify-center align-middle border border-red-200">{totalUnread}</span>
+            )}
           </button>
           <button
             onClick={() => setActiveTab('profile')}
@@ -2614,139 +2544,11 @@ export default function Dashboard({ onLogout }) {
 
         {/* SECÇÃO: CHAT */}
         {activeTab === 'communication' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col h-[500px] overflow-hidden">
-            <div className="p-4 bg-gray-50 border-b border-gray-200 flex justify-between items-center">
-              <div>
-                <span className="text-[10px] font-bold text-gray-400 block uppercase">Conversar Com:</span>
-                <select
-                  value={chatTarget}
-                  onChange={(e) => setChatTarget(e.target.value)}
-                  className="bg-white border border-gray-300 rounded-xl p-2 text-xs font-bold text-gray-800 focus:outline-none"
-                >
-                  <option value="all">📢 Canal Geral (Todos os Pais)</option>
-                  {acceptedList.map((athlete) => {
-                    const email = athlete.email || athlete.parentEmail || athlete.parent_email;
-                    const name = athlete.athleteName || athlete.athlete_name || athlete.fullName;
-                    return (
-                      <option key={athlete.id} value={email}>
-                        👤 EE: {athlete.parentName || athlete.parent_name} ({name})
-                      </option>
-                    );
-                  })}
-                </select>
-              </div>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50">
-              {currentChatMessages.length === 0 ? (
-                <div className="text-center py-12 text-xs text-gray-400">
-                  Nenhuma mensagem trocada nesta conversa. Escreva a primeira mensagem abaixo!
-                </div>
-              ) : (
-                currentChatMessages.map((msg, idx) => {
-                  const isCoach = msg.sender === 'Coach';
-                  return (
-                    <div
-                      key={idx}
-                      className={`flex flex-col ${isCoach ? 'items-end' : 'items-start'}`}
-                    >
-                      <div
-                        className={`max-w-[80%] p-3 rounded-2xl text-xs space-y-1 ${
-                          isCoach
-                            ? 'bg-clubRed text-white rounded-tr-none'
-                            : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none shadow-sm'
-                        }`}
-                      >
-                        <span className="text-[10px] font-bold block opacity-80">
-                          {isCoach ? 'Treinador' : msg.senderName || msg.sender_name || 'Encarregado'}
-                        </span>
-                        <p className="leading-relaxed whitespace-pre-line">{msg.text || msg.message}</p>
-                        <span className="text-[9px] block text-right opacity-70">
-                          {msg.timestamp || msg.date}
-                        </span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <form onSubmit={handleSendChatMessage} className="p-3 bg-white border-t border-gray-200 flex space-x-2">
-              <input
-                type="text"
-                placeholder="Escreva a mensagem..."
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                className="flex-1 p-3 border border-gray-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-clubRed"
-                required
-              />
-              <button
-                type="submit"
-                disabled={isSendingChat}
-                className="px-5 py-3 bg-clubRed hover:bg-red-700 text-white rounded-xl text-xs font-bold transition shadow"
-              >
-                Enviar
-              </button>
-            </form>
-          </div>
+          <CoachChat families={chatFamilies} initialFamily={chatTarget} />
         )}
 
         {/* SECÇÃO: PERFIL DO TREINADOR */}
-        {activeTab === 'profile' && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-200 space-y-6">
-            <div className="border-b border-gray-100 pb-3 flex items-center justify-between">
-              <div>
-                <h2 className="font-bold text-gray-900 text-base">Dados Pessoais do Treinador</h2>
-                <p className="text-xs text-gray-500">Atualize o seu endereço de email ou a sua palavra-passe de acesso</p>
-              </div>
-              <span className={`text-xs px-2.5 py-1 rounded-full font-bold uppercase ${isAdmin ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-700'}`}>
-                {isAdmin ? '👑 Administrador' : '👟 Treinador'}
-              </span>
-            </div>
-
-            <form onSubmit={handleUpdateCoachProfile} className="space-y-4 max-w-lg">
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Endereço de Email:
-                </label>
-                <input
-                  type="email"
-                  value={profileEmail}
-                  onChange={(e) => setProfileEmail(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-clubRed"
-                  required
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold text-gray-700 mb-1">
-                  Nova Palavra-passe:
-                </label>
-                <input
-                  type="password"
-                  placeholder="Deixe em branco para não alterar"
-                  value={profilePassword}
-                  onChange={(e) => setProfilePassword(e.target.value)}
-                  className="w-full p-3 border border-gray-300 rounded-xl text-xs font-medium focus:outline-none focus:ring-2 focus:ring-clubRed"
-                />
-                <span className="text-[10px] text-gray-400 block mt-1">
-                  Mínimo de 6 caracteres se desejar alterar.
-                </span>
-              </div>
-
-              <div className="pt-2">
-                <button
-                  type="submit"
-                  disabled={isUpdatingProfile}
-                  className="w-full sm:w-auto px-6 py-3 bg-clubRed hover:bg-red-700 text-white font-bold text-xs rounded-xl transition shadow disabled:opacity-55"
-                >
-                  {isUpdatingProfile ? 'A guardar alterações...' : 'Guardar Dados Pessoais'}
-                </button>
-              </div>
-            </form>
-          </div>
-        )}
-
+        {activeTab === 'profile' && <CoachProfile />}
       </main>
     </div>
   );
