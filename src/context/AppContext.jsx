@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useRef } from 'r
 import OneSignal from 'react-onesignal';
 import { supabase } from '../services/supabaseClient';
 import { fetchAllRows, dayKey } from '../services/fetchAllRows';
+import { clearPhotoCache } from '../services/privatePhotos';
 
 const AppContext = createContext();
 
@@ -144,6 +145,7 @@ export function AppProvider({ children }) {
     setCoachProfiles([]);
     setCoachTeam([]);
     knownMessageIdsRef.current = null;
+    clearPhotoCache();
   };
 
   // Carregar dados iniciais e subscrever a alterações

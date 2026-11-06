@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import StoredImage from '../common/StoredImage';
 import FamilyChat from '../common/FamilyChat';
 import { supabase } from '../../services/supabaseClient';
 
@@ -408,7 +409,7 @@ export default function ParentDashboard({ registration, onLogout }) {
               <div className="flex flex-col sm:flex-row items-center space-y-4 sm:space-y-0 sm:space-x-6">
                 <div className="relative w-28 h-28 rounded-2xl overflow-hidden bg-gray-100 border-2 border-dashed border-gray-300 flex items-center justify-center shrink-0 shadow-inner">
                   {currentPhotoUrl ? (
-                    <img 
+                    <StoredImage 
                       src={currentPhotoUrl} 
                       alt="Fotografia do Atleta" 
                       className="w-full h-full object-cover" 
