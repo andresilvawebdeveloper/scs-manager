@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import FamilyChat from '../common/FamilyChat';
 import { supabase } from '../../services/supabaseClient';
 
 // Hook para calcular a contagem decrescente exata em tempo real
@@ -117,13 +118,37 @@ function AdultClassItem({ classItem, registration, onEnroll, onCancel }) {
 
 export default function AdultAthleteDashboard({ registration, onLogout }) {
   const { 
-    updateAdultRegistration,
+    updateMyRegistration,
     adultClasses, 
     bookAdultClass, 
     cancelAdultClassEnrollment,
     messages,
-    sendMessage
+    sendMessage,
+    fetchMessages,
+    logoutMember,
+    coachProfiles,
+    conversationKey,
+    unreadCount
   } = useApp();
+
+  // Mensagens por ler (todas as conversas desta família)
+  const chatUnread = (() => {
+    const em = (registration.email || '').toLowerCase();
+    const keys = ['all|club', conversationKey(em, null), ...(coachProfiles || []).map((c) => conversationKey(em, c.id))];
+    return keys.reduce((n, k) => n + unreadCount(k), 0);
+  })();
+
+  const handleLogout = async () => {
+    await logoutMember();
+    onLogout();
+  };
+
+  // Grava alterações na própria ficha (função segura no Supabase)
+  const saveMyChanges = async (changes) => {
+    const result = await updateMyRegistration('adult', registration.id, changes);
+    if (!result.success) throw new Error(result.message);
+    return result.registration;
+  };
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'adultClasses', 'chat'
   const [isEditing, setIsEditing] = useState(false);
@@ -134,16 +159,9 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
 
   // Estado do Chat
-  const [chatText, setChatText] = useState('');
-  const [isSendingChat, setIsSendingChat] = useState(false);
 
   const userEmail = registration.email;
 
-  // Filtrar mensagens privadas ou do canal geral relativas a este adulto
-  const allMessagesList = messages || [];
-  const myChatMessages = allMessagesList.filter(
-    (m) => m.recipientEmail === 'all' || m.recipientEmail === userEmail || m.senderEmail === userEmail
-  );
 
   const activeAdultClasses = adultClasses || [];
 
@@ -171,19 +189,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
         .from('avatars')
         .getPublicUrl(filePath);
 
-      // Usar apenas photo_url para corresponder estritamente à coluna da base de dados
-      const payload = { photo_url: publicUrl };
-
-      const { error: dbError } = await supabase
-        .from('adult_registrations')
-        .update(payload)
-        .eq('email', userEmail);
-
-      if (dbError) throw dbError;
-
-      if (updateAdultRegistration) {
-        await updateAdultRegistration(registration.id, payload);
-      }
+      await saveMyChanges({ photo_url: publicUrl });
 
       setFormData(prev => ({ ...prev, photo_url: publicUrl, photoUrl: publicUrl }));
       setSuccessMsg('Fotografia de perfil atualizada com sucesso!');
@@ -200,18 +206,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
     try {
       setUploadingPhoto(true);
-      const payload = { photo_url: null };
-
-      const { error: dbError } = await supabase
-        .from('adult_registrations')
-        .update(payload)
-        .eq('email', userEmail);
-
-      if (dbError) throw dbError;
-
-      if (updateAdultRegistration) {
-        await updateAdultRegistration(registration.id, payload);
-      }
+      await saveMyChanges({ photo_url: null });
 
       setFormData(prev => ({ ...prev, photo_url: null, photoUrl: null }));
       setSuccessMsg('Fotografia de perfil removida com sucesso!');
@@ -235,13 +230,14 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
       payment_mode: formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal'
     };
 
-    if (updateAdultRegistration) {
-      await updateAdultRegistration(registration.id, payload);
+    try {
+      const saved = await saveMyChanges(payload);
+      setFormData((prev) => ({ ...prev, ...payload, ...saved }));
+      setSuccessMsg('Dados atualizados com sucesso!');
+      setIsEditing(false);
+    } catch (err) {
+      setSuccessMsg('⚠️ As alterações não foram guardadas: ' + err.message);
     }
-
-    setFormData({ ...formData, ...payload });
-    setSuccessMsg('Dados atualizados com sucesso!');
-    setIsEditing(false);
   };
 
   const handleEnroll = async (classId, paymentMode) => {
@@ -271,30 +267,6 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
     }
   };
 
-  const handleSendChatMessage = async (e) => {
-    e.preventDefault();
-    if (!chatText.trim()) return;
-
-    setIsSendingChat(true);
-
-    const msgObj = {
-      id: Date.now().toString(),
-      sender: 'Parent',
-      senderName: formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name,
-      senderEmail: userEmail,
-      recipientEmail: 'Coach',
-      text: chatText.trim(),
-      timestamp: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      date: new Date().toLocaleDateString('pt-PT')
-    };
-
-    if (sendMessage) {
-      sendMessage(msgObj);
-    }
-
-    setChatText('');
-    setIsSendingChat(false);
-  };
 
   const displayName = formData.full_name || formData.fullName || formData.athleteName || formData.athlete_name || 'Aluno';
   const displayBirth = formData.birth_date || formData.birthDate || 'Não preenchido';
@@ -317,7 +289,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
           </div>
           <h1 className="font-bold text-sm">Área de Aulas de Adultos</h1>
         </div>
-        <button onClick={onLogout} className="text-xs bg-white text-amber-800 px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-100 transition">
+        <button onClick={handleLogout} className="text-xs bg-white text-amber-800 px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-100 transition">
           Sair
         </button>
       </header>
@@ -342,12 +314,14 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
             Aulas 📅
           </button>
           <button
-            onClick={() => setActiveTab('chat')}
+            onClick={() => { setActiveTab('chat'); fetchMessages && fetchMessages(); }}
             className={`py-2.5 text-xs font-bold rounded-xl transition ${
               activeTab === 'chat' ? 'bg-amber-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'
             }`}
           >
-            Chat Treinador 💬
+            Chat Treinador 💬{chatUnread > 0 && (
+              <span data-testid="chat-badge" className="ml-1 inline-flex min-w-[18px] h-[18px] px-1 rounded-full bg-white text-clubRed text-[10px] font-bold items-center justify-center align-middle border border-red-200">{chatUnread}</span>
+            )}
           </button>
         </div>
       </div>
@@ -507,55 +481,8 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
         {/* ABA 3: CHAT */}
         {activeTab === 'chat' && (
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col h-[500px] overflow-hidden">
-            <div className="p-4 bg-gray-50 border-b border-gray-200">
-              <h2 className="font-bold text-xs text-gray-800">💬 Chat com o Treinador</h2>
-              <p className="text-[10px] text-gray-500">Histórico de mensagens privadas e comunicados gerais.</p>
-            </div>
-
-            <div className="flex-1 p-4 overflow-y-auto space-y-3 bg-slate-50">
-              {myChatMessages.length === 0 ? (
-                <div className="text-center py-12 text-xs text-gray-400">
-                  Nenhuma mensagem trocada ainda. Escreva uma mensagem abaixo!
-                </div>
-              ) : (
-                myChatMessages.map((msg, idx) => {
-                  const isMe = msg.senderEmail === userEmail || msg.sender === 'Parent';
-                  return (
-                    <div key={idx} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
-                      <div className={`max-w-[80%] p-3 rounded-2xl text-xs space-y-1 ${
-                        isMe ? 'bg-amber-600 text-white rounded-tr-none' : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none shadow-sm'
-                      }`}>
-                        <span className="text-[10px] font-bold block opacity-80">{isMe ? 'Você' : 'Treinador'}</span>
-                        <p className="leading-relaxed whitespace-pre-line">{msg.text || msg.message}</p>
-                        <span className="text-[9px] block text-right opacity-70">{msg.timestamp || msg.date}</span>
-                      </div>
-                    </div>
-                  );
-                })
-              )}
-            </div>
-
-            <form onSubmit={handleSendChatMessage} className="p-3 bg-white border-t border-gray-200 flex space-x-2">
-              <input
-                type="text"
-                placeholder="Escreva a mensagem para o treinador..."
-                value={chatText}
-                onChange={(e) => setChatText(e.target.value)}
-                className="flex-1 p-3 border border-gray-300 rounded-xl text-xs focus:outline-none focus:ring-2 focus:ring-amber-600"
-                required
-              />
-              <button
-                type="submit"
-                disabled={isSendingChat}
-                className="px-5 py-3 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold transition shadow"
-              >
-                Enviar
-              </button>
-            </form>
-          </div>
+          <FamilyChat myEmail={registration.email} myName={registration.full_name || registration.fullName || 'Aluno'} accent="bg-amber-600" />
         )}
-
       </main>
     </div>
   );

@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY");
 
@@ -7,17 +8,44 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+const escapeHtml = (s: unknown) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
+
+// Só treinadores com perfil ativo podem pedir estes emails (evita uso da função por terceiros)
+async function callerIsCoach(req: Request): Promise<boolean> {
+  const auth = req.headers.get("Authorization");
+  const url = Deno.env.get("SUPABASE_URL");
+  const anon = Deno.env.get("SUPABASE_ANON_KEY");
+  if (!auth || !url || !anon) return false;
+  const client = createClient(url, anon, { global: { headers: { Authorization: auth } } });
+  const { data, error } = await client.rpc("scs_is_coach");
+  return !error && data === true;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    if (!(await callerIsCoach(req))) {
+      return new Response(JSON.stringify({ error: "Sem permissão" }), {
+        status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const body = await req.json();
     const email = body.email || body.to;
-    const athleteName = body.athleteName || "Atleta";
+    const athleteName = escapeHtml(body.athleteName || "Atleta");
     const status = body.status;
-    const accessCode = body.accessCode || "";
+    const accessCode = escapeHtml(body.accessCode || "");
+
+    if (status !== "accepted" && status !== "review") {
+      return new Response(
+        JSON.stringify({ error: "Tipo de email desconhecido (status deve ser 'accepted' ou 'review')." }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
 
     if (!email) {
       return new Response(
@@ -118,7 +146,7 @@ serve(async (req) => {
         Authorization: `Bearer ${RESEND_API_KEY}`,
       },
       body: JSON.stringify({
-        from: "SCS Manager <onboarding@resend.dev>",
+        from: Deno.env.get("CLUB_EMAIL_FROM") || "SCS Manager <onboarding@resend.dev>",
         to: email,
         subject: subject,
         html: htmlContent,
