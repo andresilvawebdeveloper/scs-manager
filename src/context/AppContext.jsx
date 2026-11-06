@@ -1021,8 +1021,9 @@ export function AppProvider({ children }) {
       family_email: family,
       coach_id: coachId || null,
       text: clean,
-      timestamp: new Date().toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' }),
-      date: new Date().toLocaleDateString('pt-PT'),
+      // Formatos ISO: funcionam quer a coluna seja texto quer seja data/hora na base de dados
+      timestamp: new Date().toISOString(),
+      date: new Date().toISOString().slice(0, 10),
     };
     const tempId = `local_${Date.now()}`;
     setMessages((prev) => [...prev, normalizeMessage({ ...row, id: tempId, created_at: new Date().toISOString() })]);
