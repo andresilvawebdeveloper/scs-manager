@@ -88,9 +88,34 @@ where u.email is not null
 -- 2. Ajustes de colunas
 -- ---------------------------------------------------------------------
 
--- Presença real no evento (marcada pelo treinador); status = resposta do pai
+-- Colunas que a app usa. Algumas podem não existir na base de dados real
+-- (ex.: event_attendances.status não existia, por isso as respostas e
+-- presenças nunca chegavam a ser gravadas). Só cria as que faltam.
+alter table public.event_attendances add column if not exists event_id text;
+alter table public.event_attendances add column if not exists athlete_id text;
+-- status = resposta do encarregado (vai / não vai)
+alter table public.event_attendances add column if not exists status boolean;
+-- present = presença real no evento (marcada pelo treinador)
 alter table public.event_attendances add column if not exists present boolean;
 alter table public.event_attendances alter column status drop not null;
+
+alter table public.messages add column if not exists sender text;
+alter table public.messages add column if not exists sender_name text;
+alter table public.messages add column if not exists recipient_email text;
+alter table public.messages add column if not exists text text;
+alter table public.messages add column if not exists "timestamp" text;
+alter table public.messages add column if not exists date text;
+
+alter table public.coaches add column if not exists email text;
+
+alter table public.registrations add column if not exists status text;
+alter table public.registrations add column if not exists phone text;
+alter table public.registrations add column if not exists email text;
+alter table public.registrations add column if not exists access_code text;
+alter table public.adult_registrations add column if not exists status text;
+alter table public.adult_registrations add column if not exists phone text;
+alter table public.adult_registrations add column if not exists email text;
+alter table public.adult_registrations add column if not exists access_code text;
 
 -- Remover duplicados e garantir 1 linha por (evento, atleta) — o "upsert" precisa disto
 delete from public.event_attendances a
