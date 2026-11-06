@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
+import StoredImage from '../common/StoredImage';
 import FamilyChat from '../common/FamilyChat';
 import { supabase } from '../../services/supabaseClient';
 
@@ -371,7 +372,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
               {/* Secção de Fotografia de Perfil */}
               <div className="flex flex-col sm:flex-row items-center gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
                 {currentPhotoUrl ? (
-                  <img 
+                  <StoredImage 
                     src={currentPhotoUrl} 
                     alt={displayName} 
                     className="w-20 h-20 rounded-2xl object-cover border-2 border-amber-600 shadow-sm" 

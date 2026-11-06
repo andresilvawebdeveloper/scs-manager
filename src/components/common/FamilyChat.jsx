@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
+import StoredImage from './StoredImage';
 
 const formatTime = (m) => {
   const d = new Date(m.created_at || m.timestamp || '');
@@ -14,7 +15,7 @@ export const initialsOf = (name) =>
 
 export function CoachAvatar({ coach, size = 'w-10 h-10' }) {
   return coach?.photo_url ? (
-    <img src={coach.photo_url} alt={coach.name} className={`${size} rounded-full object-cover border border-gray-200`} />
+    <StoredImage src={coach.photo_url} alt={coach.name} className={`${size} rounded-full object-cover border border-gray-200`} />
   ) : (
     <span className={`${size} rounded-full bg-red-100 text-clubRed font-bold text-xs flex items-center justify-center`}>
       {initialsOf(coach?.name)}

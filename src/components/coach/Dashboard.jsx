@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useApp } from '../../context/AppContext';
+import StoredImage from '../common/StoredImage';
 import { supabase } from '../../services/supabaseClient';
 import { fetchAllRows, dayKey } from '../../services/fetchAllRows';
 import ExcelJS from 'exceljs';
@@ -1195,7 +1196,7 @@ export default function Dashboard({ onLogout }) {
                       <div key={reg.id} className="bg-white p-5 rounded-2xl shadow-sm border border-amber-200 space-y-4">
                         <div className="flex items-center space-x-4">
                           {photoUrl ? (
-                            <img 
+                            <StoredImage 
                               src={photoUrl} 
                               alt={name} 
                               className="w-14 h-14 rounded-2xl object-cover border-2 border-clubRed shadow-sm flex-shrink-0" 
@@ -1379,7 +1380,7 @@ export default function Dashboard({ onLogout }) {
                                 <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
                                   {photoUrl ? (
                                     <div className="relative flex-shrink-0">
-                                      <img 
+                                      <StoredImage 
                                         src={photoUrl} 
                                         alt={name} 
                                         className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-clubRed/20 shadow-md"
@@ -1440,7 +1441,7 @@ export default function Dashboard({ onLogout }) {
                                     <div className="flex flex-col items-center sm:items-start pb-2">
                                       <div className="bg-white p-2 rounded-2xl border border-gray-200 shadow-md flex flex-col items-center space-y-2">
                                         <div className="relative">
-                                          <img 
+                                          <StoredImage 
                                             src={photoUrl} 
                                             alt={name} 
                                             className="w-32 h-32 sm:w-36 sm:h-36 rounded-xl object-cover border border-gray-200" 
@@ -1562,7 +1563,7 @@ export default function Dashboard({ onLogout }) {
                                 <div key={athlete.id} className="bg-gray-50 p-3 rounded-xl border border-gray-100 flex justify-between items-center">
                                   <div className="flex items-center space-x-2.5 truncate pr-2">
                                     {photoUrl ? (
-                                      <img 
+                                      <StoredImage 
                                         src={photoUrl} 
                                         alt={name} 
                                         className="w-9 h-9 rounded-xl object-cover border border-clubRed/30 flex-shrink-0" 
@@ -1665,7 +1666,7 @@ export default function Dashboard({ onLogout }) {
                     <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                       <div className="flex items-center space-x-3">
                         {photoUrl ? (
-                          <img 
+                          <StoredImage 
                             src={photoUrl} 
                             alt={reg.athleteName || reg.fullName} 
                             className="w-10 h-10 rounded-xl object-cover border border-clubRed/30 flex-shrink-0"
@@ -2284,7 +2285,7 @@ export default function Dashboard({ onLogout }) {
                         <div key={adult.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
                           <div className="flex items-center space-x-3">
                             {photoUrl ? (
-                              <img 
+                              <StoredImage 
                                 src={photoUrl} 
                                 alt={name} 
                                 className="w-10 h-10 rounded-xl object-cover border border-clubRed/30 flex-shrink-0"
@@ -2467,7 +2468,7 @@ export default function Dashboard({ onLogout }) {
                           <div className="flex items-center space-x-3 sm:space-x-4 w-full sm:w-auto">
                             {photoUrl ? (
                               <div className="relative flex-shrink-0">
-                                <img 
+                                <StoredImage 
                                   src={photoUrl} 
                                   alt={name} 
                                   className="w-14 h-14 sm:w-16 sm:h-16 rounded-2xl object-cover border-2 border-clubRed/20 shadow-md"
@@ -2524,7 +2525,7 @@ export default function Dashboard({ onLogout }) {
                               <div className="flex flex-col items-center sm:items-start pb-2">
                                 <div className="bg-white p-2 rounded-2xl border border-gray-200 shadow-md flex flex-col items-center space-y-2">
                                   <div className="relative">
-                                    <img 
+                                    <StoredImage 
                                       src={photoUrl} 
                                       alt={name} 
                                       className="w-32 h-32 sm:w-36 sm:h-36 rounded-xl object-cover border border-gray-200" 
