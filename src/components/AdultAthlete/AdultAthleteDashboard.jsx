@@ -117,13 +117,27 @@ function AdultClassItem({ classItem, registration, onEnroll, onCancel }) {
 
 export default function AdultAthleteDashboard({ registration, onLogout }) {
   const { 
-    updateAdultRegistration,
+    updateMyRegistration,
     adultClasses, 
     bookAdultClass, 
     cancelAdultClassEnrollment,
     messages,
-    sendMessage
+    sendMessage,
+    fetchMessages,
+    logoutMember
   } = useApp();
+
+  const handleLogout = async () => {
+    await logoutMember();
+    onLogout();
+  };
+
+  // Grava alterações na própria ficha (função segura no Supabase)
+  const saveMyChanges = async (changes) => {
+    const result = await updateMyRegistration('adult', registration.id, changes);
+    if (!result.success) throw new Error(result.message);
+    return result.registration;
+  };
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'adultClasses', 'chat'
   const [isEditing, setIsEditing] = useState(false);
@@ -171,19 +185,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
         .from('avatars')
         .getPublicUrl(filePath);
 
-      // Usar apenas photo_url para corresponder estritamente à coluna da base de dados
-      const payload = { photo_url: publicUrl };
-
-      const { error: dbError } = await supabase
-        .from('adult_registrations')
-        .update(payload)
-        .eq('email', userEmail);
-
-      if (dbError) throw dbError;
-
-      if (updateAdultRegistration) {
-        await updateAdultRegistration(registration.id, payload);
-      }
+      await saveMyChanges({ photo_url: publicUrl });
 
       setFormData(prev => ({ ...prev, photo_url: publicUrl, photoUrl: publicUrl }));
       setSuccessMsg('Fotografia de perfil atualizada com sucesso!');
@@ -200,18 +202,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
 
     try {
       setUploadingPhoto(true);
-      const payload = { photo_url: null };
-
-      const { error: dbError } = await supabase
-        .from('adult_registrations')
-        .update(payload)
-        .eq('email', userEmail);
-
-      if (dbError) throw dbError;
-
-      if (updateAdultRegistration) {
-        await updateAdultRegistration(registration.id, payload);
-      }
+      await saveMyChanges({ photo_url: null });
 
       setFormData(prev => ({ ...prev, photo_url: null, photoUrl: null }));
       setSuccessMsg('Fotografia de perfil removida com sucesso!');
@@ -235,13 +226,14 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
       payment_mode: formData.payment_mode || formData.adultClassesPaymentMode || 'Mensal'
     };
 
-    if (updateAdultRegistration) {
-      await updateAdultRegistration(registration.id, payload);
+    try {
+      const saved = await saveMyChanges(payload);
+      setFormData((prev) => ({ ...prev, ...payload, ...saved }));
+      setSuccessMsg('Dados atualizados com sucesso!');
+      setIsEditing(false);
+    } catch (err) {
+      setSuccessMsg('⚠️ As alterações não foram guardadas: ' + err.message);
     }
-
-    setFormData({ ...formData, ...payload });
-    setSuccessMsg('Dados atualizados com sucesso!');
-    setIsEditing(false);
   };
 
   const handleEnroll = async (classId, paymentMode) => {
@@ -288,8 +280,11 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
       date: new Date().toLocaleDateString('pt-PT')
     };
 
-    if (sendMessage) {
-      sendMessage(msgObj);
+    const result = sendMessage ? await sendMessage(msgObj) : { success: false };
+    if (!result.success) {
+      alert('A mensagem não foi enviada. Tente novamente.');
+      setIsSendingChat(false);
+      return;
     }
 
     setChatText('');
@@ -317,7 +312,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
           </div>
           <h1 className="font-bold text-sm">Área de Aulas de Adultos</h1>
         </div>
-        <button onClick={onLogout} className="text-xs bg-white text-amber-800 px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-100 transition">
+        <button onClick={handleLogout} className="text-xs bg-white text-amber-800 px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-100 transition">
           Sair
         </button>
       </header>
@@ -342,7 +337,7 @@ export default function AdultAthleteDashboard({ registration, onLogout }) {
             Aulas 📅
           </button>
           <button
-            onClick={() => setActiveTab('chat')}
+            onClick={() => { setActiveTab('chat'); fetchMessages && fetchMessages(); }}
             className={`py-2.5 text-xs font-bold rounded-xl transition ${
               activeTab === 'chat' ? 'bg-amber-600 text-white shadow' : 'text-gray-600 hover:bg-gray-50'
             }`}

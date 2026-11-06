@@ -42,17 +42,11 @@ export function AppProvider({ children }) {
 
   const [attendances, setAttendances] = useState({});
 
-  const [eventAttendances, setEventAttendances] = useState(() => {
-    const saved = localStorage.getItem('scs_event_attendances');
-    return saved ? JSON.parse(saved) : {};
-  });
+  const [eventAttendances, setEventAttendances] = useState({});
 
   const [adultClasses, setAdultClasses] = useState([]);
 
-  const [messages, setMessages] = useState(() => {
-    const saved = localStorage.getItem('scs_messages');
-    return saved ? JSON.parse(saved) : [];
-  });
+  const [messages, setMessages] = useState([]);
 
   // Função auxiliar para associar o utilizador ao OneSignal de forma persistente
   const setupOneSignalUser = async (user) => {
@@ -105,35 +99,53 @@ export function AppProvider({ children }) {
     initOneSignal();
   }, []);
 
-  // Carregar dados iniciais e subscrever a alterações
-  useEffect(() => {
+  // Carrega os dados a que a sessão atual tem acesso. As permissões (RLS) são
+  // aplicadas no Supabase: um visitante sem sessão não recebe dados pessoais,
+  // um encarregado/adulto só recebe os seus e um treinador recebe tudo.
+  const refreshData = () => {
     fetchRegistrations();
     fetchAdultRegistrations();
     fetchEvents();
     fetchEventAttendances();
     fetchAdultClasses();
     fetchAttendances();
+    fetchMessages();
+  };
 
-    const checkActiveSession = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (session?.user) {
-        await fetchCoachProfile(session.user);
-        await setupOneSignalUser(session.user);
-      }
-    };
-    checkActiveSession();
+  const clearPrivateData = () => {
+    setRegistrations([]);
+    setAdultRegistrations([]);
+    setEventAttendances({});
+    setAdultClasses([]);
+    setAttendances({});
+    setMessages([]);
+  };
 
-    const { data: authListener } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (session?.user) {
-        await fetchCoachProfile(session.user);
-        await setupOneSignalUser(session.user);
-      } else {
-        setCurrentCoach(null);
-        localStorage.removeItem('scs_current_coach');
-        try {
-          await OneSignal.logout();
-        } catch (e) {}
-      }
+  // Carregar dados iniciais e subscrever a alterações
+  useEffect(() => {
+    // Limpa caches antigas que guardavam dados no dispositivo
+    localStorage.removeItem('scs_messages');
+    localStorage.removeItem('scs_event_attendances');
+
+    fetchEvents();
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      // Não fazer chamadas ao Supabase diretamente dentro deste callback (pode bloquear o cliente)
+      setTimeout(async () => {
+        if (session?.user) {
+          if (event === 'TOKEN_REFRESHED') return;
+          await fetchCoachProfile(session.user);
+          await setupOneSignalUser(session.user);
+          refreshData();
+        } else {
+          setCurrentCoach(null);
+          localStorage.removeItem('scs_current_coach');
+          clearPrivateData();
+          try {
+            await OneSignal.logout();
+          } catch (e) {}
+        }
+      }, 0);
     });
 
     const attendancesSubscription = supabase
@@ -143,9 +155,17 @@ export function AppProvider({ children }) {
       })
       .subscribe();
 
+    const messagesSubscription = supabase
+      .channel('public:messages:context')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' }, () => {
+        fetchMessages();
+      })
+      .subscribe();
+
     return () => {
       authListener?.subscription?.unsubscribe();
       supabase.removeChannel(attendancesSubscription);
+      supabase.removeChannel(messagesSubscription);
     };
   }, []);
 
@@ -161,10 +181,17 @@ export function AppProvider({ children }) {
         console.error('Erro ao procurar perfil na tabela coaches:', error.message);
       }
 
+      // Só é treinador quem tem linha na tabela coaches (encarregados entram por SMS e não têm)
+      if (!coachProfile) {
+        setCurrentCoach(null);
+        localStorage.removeItem('scs_current_coach');
+        return;
+      }
+
       const coachData = {
         id: authUser.id,
         email: authUser.email,
-        name: coachProfile?.email || authUser.email,
+        name: coachProfile?.name || coachProfile?.email || authUser.email,
         role: coachProfile?.role || (authUser.email === 'joana.meireles@gmail.com' ? 'admin' : 'coach'),
       };
       
@@ -175,13 +202,25 @@ export function AppProvider({ children }) {
     }
   };
 
-  useEffect(() => {
-    localStorage.setItem('scs_event_attendances', JSON.stringify(eventAttendances));
-  }, [eventAttendances]);
+  const normalizeMessage = (m) => ({
+    ...m,
+    senderName: m.sender_name || m.senderName || m.sender,
+    senderEmail: m.sender_email || m.senderEmail || '',
+    recipientEmail: m.recipient_email || m.recipientEmail || 'all',
+  });
 
-  useEffect(() => {
-    localStorage.setItem('scs_messages', JSON.stringify(messages));
-  }, [messages]);
+  const fetchMessages = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('messages')
+        .select('*')
+        .order('created_at', { ascending: true });
+      if (error) throw error;
+      if (data) setMessages(data.map(normalizeMessage));
+    } catch (err) {
+      console.error('Erro ao carregar mensagens:', err.message);
+    }
+  };
 
   const fetchAttendances = async () => {
     try {
@@ -254,7 +293,7 @@ export function AppProvider({ children }) {
         const loadedMap = {};
         data.forEach((item) => {
           const key = `${item.event_id}_${item.athlete_id}`;
-          loadedMap[key] = { status: item.status };
+          loadedMap[key] = { status: item.status, present: item.present };
         });
         setEventAttendances(loadedMap);
       }
@@ -543,27 +582,56 @@ export function AppProvider({ children }) {
     }
   };
 
-  const updateRegistrationByParent = async (id, updatedData) => {
+  // Mapeia os nomes do formulário (camelCase) para as colunas da base de dados
+  const PARENT_FIELD_MAP = {
+    athleteName: 'athlete_name', athleteNIF: 'athlete_nif', athleteCC: 'athlete_cc',
+    parentName: 'parent_name', postalCode: 'postal_code', photoUrl: 'photo_url',
+    tracksuitSize: 'tracksuit_size', officialTshirtSize: 'official_tshirt_size',
+    redTshirtSize: 'red_tshirt_size', yellowTshirtSize: 'yellow_tshirt_size',
+  };
+  const ADULT_FIELD_MAP = {
+    fullName: 'full_name', athleteName: 'full_name', athlete_name: 'full_name',
+    athleteNIF: 'nif', athlete_nif: 'nif', athleteCC: 'cc', athlete_cc: 'cc',
+    postalCode: 'postal_code', photoUrl: 'photo_url', paymentMode: 'payment_mode',
+    adultClassesPaymentMode: 'payment_mode',
+  };
+
+  const toDbColumns = (data, fieldMap) => {
+    const out = {};
+    const entries = Object.entries(data || {}).filter(([, value]) => value !== undefined);
+    // 1.º as colunas tal como vêm da base de dados (snake_case)...
+    entries.filter(([key]) => !fieldMap[key]).forEach(([key, value]) => { out[key] = value; });
+    // ...depois os campos do formulário (camelCase), que são os valores editados e têm prioridade
+    entries.filter(([key]) => fieldMap[key]).forEach(([key, value]) => { out[fieldMap[key]] = value; });
+    if (out.phone) out.phone = formatPhoneNumber(out.phone);
+    return out;
+  };
+
+  // Edição da ficha pelo próprio encarregado (kind 'parent') ou aluno adulto (kind 'adult').
+  // Passa por uma função no Supabase que só aceita campos permitidos e só a própria ficha.
+  const updateMyRegistration = async (kind, id, updatedData) => {
+    const changes = toDbColumns(updatedData, kind === 'adult' ? ADULT_FIELD_MAP : PARENT_FIELD_MAP);
     try {
-      const payload = {
-        ...updatedData,
-        ...(updatedData.phone && { phone: formatPhoneNumber(updatedData.phone) })
-      };
-      await supabase.from('registrations').update(payload).eq('id', id);
-      setRegistrations((prev) => prev.map((reg) => (reg.id === id ? { ...reg, ...payload } : reg)));
+      const { data, error } = await supabase.rpc('scs_update_my_registration', {
+        p_id: String(id),
+        p_kind: kind,
+        p_changes: changes,
+      });
+      if (error) throw error;
+      if (!data) throw new Error('A ficha não foi encontrada.');
+      return { success: true, registration: data };
     } catch (err) {
-      console.error('Erro ao atualizar:', err);
+      console.error('Erro ao atualizar ficha:', err);
+      return { success: false, message: err.message || 'Não foi possível guardar as alterações.' };
     }
   };
 
+  const updateRegistrationByParent = (id, updatedData) => updateMyRegistration('parent', id, updatedData);
+
+  // Usado pelo treinador (ex.: aceitar inscrição de adulto)
   const updateAdultRegistration = async (id, updatedData) => {
     try {
-      const payload = {
-        ...updatedData,
-        ...(updatedData.phone && { phone: formatPhoneNumber(updatedData.phone) }),
-        ...(updatedData.photoUrl !== undefined && { photo_url: updatedData.photoUrl }),
-        ...(updatedData.photo_url !== undefined && { photoUrl: updatedData.photo_url }),
-      };
+      const payload = toDbColumns(updatedData, ADULT_FIELD_MAP);
 
       const { error } = await supabase
         .from('adult_registrations')
@@ -571,41 +639,53 @@ export function AppProvider({ children }) {
         .eq('id', id);
 
       if (error) throw error;
-      
-      setAdultRegistrations((prev) =>
-        prev.map((reg) => (reg.id === id ? { ...reg, ...payload } : reg))
-      );
 
       await fetchAdultRegistrations();
+      return { success: true };
     } catch (err) {
       console.error('Erro ao atualizar adulto:', err);
+      return { success: false, message: err.message };
     }
   };
 
-  const loginParentByCode = (code) => {
-    if (!code) return { success: false, message: 'Insira o código.' };
-    const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const registration = registrations.find((reg) => {
-      const dbCode = (reg.access_code || reg.accessCode || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      return dbCode === cleanInput;
-    });
-
-    if (!registration) return { success: false, message: 'Código de acesso não encontrado.' };
-    if (registration.status !== 'accepted') return { success: false, message: 'Inscrição pendente de validação.' };
-    return { success: true, registration };
+  // Passo 1 do login: confirma o código no servidor (só devolve estado e telemóvel)
+  const lookupAccessCode = async (code, kind) => {
+    if (!code || !code.trim()) return { success: false, message: 'Insira o código.' };
+    try {
+      const { data, error } = await supabase.rpc('scs_lookup_access_code', { p_code: code.trim(), p_kind: kind });
+      if (error) throw error;
+      const found = Array.isArray(data) ? data[0] : data;
+      if (!found) return { success: false, message: 'Código de acesso não encontrado.' };
+      if ((found.status || 'pending') !== 'accepted') return { success: false, message: 'Inscrição pendente de validação.' };
+      return { success: true, phone: found.phone };
+    } catch (err) {
+      console.error('Erro ao validar código:', err);
+      return { success: false, message: 'Não foi possível validar o código. Tente novamente.' };
+    }
   };
 
-  const loginAdultByCode = (code) => {
-    if (!code) return { success: false, message: 'Insira o código.' };
-    const cleanInput = code.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const registration = adultRegistrations.find((reg) => {
-      const dbCode = (reg.access_code || reg.accessCode || '').toString().trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
-      return dbCode === cleanInput;
-    });
+  const loginParentByCode = (code) => lookupAccessCode(code, 'parent');
+  const loginAdultByCode = (code) => lookupAccessCode(code, 'adult');
 
-    if (!registration) return { success: false, message: 'Código de acesso não encontrado.' };
-    if (registration.status && registration.status !== 'accepted') return { success: false, message: 'Inscrição pendente de validação.' };
-    return { success: true, registration };
+  // Passo 3 (depois do SMS validado): obter a ficha completa
+  const getMyRegistration = async (code, kind) => {
+    try {
+      const { data, error } = await supabase.rpc('scs_get_my_registration', { p_code: code.trim(), p_kind: kind });
+      if (error) throw error;
+      if (!data) return { success: false, message: 'Não foi possível abrir a ficha. O telemóvel validado não corresponde a esta inscrição.' };
+      return { success: true, registration: data };
+    } catch (err) {
+      console.error('Erro ao obter ficha:', err);
+      return { success: false, message: 'Não foi possível abrir a ficha. Tente novamente.' };
+    }
+  };
+
+  // Saída do encarregado / aluno adulto: termina a sessão SMS e limpa os dados do dispositivo
+  const logoutMember = async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (e) {}
+    clearPrivateData();
   };
 
   // Enviar código SMS via Supabase OTP
@@ -727,44 +807,68 @@ export function AppProvider({ children }) {
     }
   };
 
-  const toggleEventAttendance = async (eventId, athleteId, forcedStatus = undefined) => {
+  // Grava um campo da presença no evento sem tocar no outro:
+  //   status  = resposta do encarregado (true = vai, false = não vai)
+  //   present = presença real marcada pelo treinador (true / false / null = por marcar)
+  const saveEventAttendanceField = async (eventId, athleteId, field, value) => {
     const key = `${eventId}_${athleteId}`;
-    const newStatus = forcedStatus !== undefined ? forcedStatus : true;
-
-    setEventAttendances((prev) => ({ ...prev, [key]: { status: newStatus } }));
+    let previous;
+    setEventAttendances((prev) => {
+      previous = prev[key];
+      return { ...prev, [key]: { ...(prev[key] || {}), [field]: value } };
+    });
 
     try {
-      const payload = {
-        event_id: String(eventId),
-        athlete_id: String(athleteId),
-        status: Boolean(newStatus),
-      };
-
       const { error } = await supabase
         .from('event_attendances')
-        .upsert(payload, { onConflict: 'event_id,athlete_id' });
-
-      if (error) {
-        console.error('Erro no Supabase ao atualizar presença:', error.message);
-      }
+        .upsert(
+          { event_id: String(eventId), athlete_id: String(athleteId), [field]: value },
+          { onConflict: 'event_id,athlete_id' }
+        );
+      if (error) throw error;
+      return { success: true };
     } catch (err) {
-      console.error('Erro crítico na submissão da presença:', err);
+      console.error('Erro ao gravar presença no evento:', err.message || err);
+      // repõe o estado anterior para o ecrã não mostrar algo que não ficou gravado
+      setEventAttendances((prev) => {
+        const next = { ...prev };
+        if (previous === undefined) delete next[key];
+        else next[key] = previous;
+        return next;
+      });
+      return { success: false, message: err.message || 'Erro ao gravar.' };
     }
   };
 
+  // Resposta do encarregado de educação
+  const toggleEventAttendance = (eventId, athleteId, willAttend) =>
+    saveEventAttendanceField(eventId, athleteId, 'status', Boolean(willAttend));
+
+  // Presença real marcada pelo treinador
+  const setEventPresence = (eventId, athleteId, present) =>
+    saveEventAttendanceField(eventId, athleteId, 'present', present === null ? null : Boolean(present));
+
   const sendMessage = async (msgObj) => {
-    setMessages((prev) => [...prev, msgObj]);
+    const row = {
+      sender: msgObj.sender,
+      sender_name: msgObj.senderName || msgObj.sender,
+      sender_email: msgObj.senderEmail || null,
+      recipient_email: msgObj.recipientEmail || 'all',
+      text: msgObj.text || msgObj.message || '',
+      timestamp: msgObj.timestamp || new Date().toISOString(),
+      date: msgObj.date || new Date().toLocaleDateString('pt-PT')
+    };
+    // mostra logo a mensagem; a lista é depois recarregada da base de dados
+    setMessages((prev) => [...prev, normalizeMessage({ ...row, id: `local_${Date.now()}` })]);
     try {
-      await supabase.from('messages').insert([{
-        sender: msgObj.sender,
-        sender_name: msgObj.senderName || msgObj.sender,
-        recipient_email: msgObj.recipientEmail || 'all',
-        text: msgObj.text || msgObj.message || '',
-        timestamp: msgObj.timestamp || new Date().toISOString(),
-        date: msgObj.date || new Date().toLocaleDateString('pt-PT')
-      }]);
+      const { error } = await supabase.from('messages').insert([row]);
+      if (error) throw error;
+      await fetchMessages();
+      return { success: true };
     } catch (err) {
       console.error('Erro ao enviar mensagem:', err);
+      await fetchMessages();
+      return { success: false, message: err.message || 'Erro ao enviar mensagem.' };
     }
   };
 
@@ -796,7 +900,12 @@ export function AppProvider({ children }) {
         deleteEvent,
         fetchEvents,
         toggleEventAttendance,
+        setEventPresence,
         sendMessage,
+        fetchMessages,
+        getMyRegistration,
+        updateMyRegistration,
+        logoutMember,
         fetchRegistrations,
         fetchAdultRegistrations,
         addAdultClass,

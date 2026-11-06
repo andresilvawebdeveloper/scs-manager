@@ -16,6 +16,16 @@ function EventCard({ ev, registration, currentAthleteClassNorm, normalizeClassNa
     setLocalStatus(initialStatus);
   }, [initialStatus]);
 
+  const handleAnswer = async (willAttend) => {
+    const previous = localStatus;
+    setLocalStatus(willAttend);
+    const result = await toggleEventAttendance(ev.id, registration.id, willAttend);
+    if (!result?.success) {
+      setLocalStatus(previous);
+      alert('Não foi possível guardar a resposta. Tente novamente.');
+    }
+  };
+
   const location = ev.location || ev.event_location || ev.place;
   const eventTime = ev.time || ev.event_time || ev.startTime || ev.start_time;
   const meetingTime = ev.meetingTime || ev.meeting_time || ev.pontoEncontro;
@@ -121,12 +131,7 @@ function EventCard({ ev, registration, currentAthleteClassNorm, normalizeClassNa
         <div className="flex items-center space-x-2 w-full sm:w-auto">
           <button
             type="button"
-            onClick={() => {
-              setLocalStatus(true);
-              if (toggleEventAttendance) {
-                toggleEventAttendance(ev.id, registration.id, true);
-              }
-            }}
+            onClick={() => handleAnswer(true)}
             className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
               localStatus === true
                 ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
@@ -138,12 +143,7 @@ function EventCard({ ev, registration, currentAthleteClassNorm, normalizeClassNa
 
           <button
             type="button"
-            onClick={() => {
-              setLocalStatus(false);
-              if (toggleEventAttendance) {
-                toggleEventAttendance(ev.id, registration.id, false);
-              }
-            }}
+            onClick={() => handleAnswer(false)}
             className={`flex-1 sm:flex-initial px-4 py-2 rounded-xl text-xs font-bold transition border flex items-center justify-center space-x-1 ${
               localStatus === false
                 ? 'bg-rose-600 text-white border-rose-600 shadow-sm'
@@ -163,8 +163,15 @@ export default function ParentDashboard({ registration, onLogout }) {
     updateRegistrationByParent, 
     events,
     messages,
-    sendMessage
+    sendMessage,
+    fetchMessages,
+    logoutMember
   } = useApp();
+
+  const handleLogout = async () => {
+    await logoutMember();
+    onLogout();
+  };
 
   const [activeTab, setActiveTab] = useState('overview'); // 'overview', 'events', 'chat'
   const [isEditing, setIsEditing] = useState(false);
@@ -239,9 +246,15 @@ export default function ParentDashboard({ registration, onLogout }) {
     setFormData({ ...formData, [e.target.name]: e.target.value });
   };
 
-  const handleSave = (e) => {
+  const handleSave = async (e) => {
     e.preventDefault();
-    updateRegistrationByParent(registration.id, formData);
+    const result = await updateRegistrationByParent(registration.id, formData);
+    if (!result.success) {
+      setSuccessMsg('⚠️ As alterações não foram guardadas: ' + result.message);
+      return;
+    }
+    // Atualiza o ecrã com o que ficou realmente gravado (mantendo os campos do formulário)
+    setFormData((prev) => ({ ...prev, ...result.registration }));
     setSuccessMsg('Dados atualizados com sucesso!');
     setIsEditing(false);
   };
@@ -282,25 +295,12 @@ export default function ParentDashboard({ registration, onLogout }) {
         .from('athlete-photos')
         .getPublicUrl(filePath);
 
-      // 3. Atualizar diretamente na tabela 'registrations' do Supabase (Apenas a coluna photo_url)
-      const { error: dbError } = await supabase
-        .from('registrations')
-        .update({
-          photo_url: publicUrl
-        })
-        .eq('id', registration.id);
+      // 3. Gravar o endereço da foto na ficha do atleta
+      const result = await updateRegistrationByParent(registration.id, { photo_url: publicUrl });
+      if (!result.success) throw new Error(result.message);
 
-      if (dbError) throw dbError;
-
-      // 4. Atualizar estado local do Contexto e da Ficha
-      const updatedFields = {
-        ...formData,
-        photo_url: publicUrl,
-        photoUrl: publicUrl
-      };
-
-      await updateRegistrationByParent(registration.id, updatedFields);
-      setFormData(updatedFields);
+      // 4. Atualizar estado local da Ficha
+      setFormData((prev) => ({ ...prev, photo_url: publicUrl, photoUrl: publicUrl }));
 
       setSuccessMsg('Fotografia do atleta atualizada com sucesso!');
       setSelectedPhotoFile(null);
@@ -325,7 +325,7 @@ export default function ParentDashboard({ registration, onLogout }) {
     const msgObj = {
       id: Date.now().toString(),
       sender: 'Parent',
-      senderName: registration.parentName || formData.parentName,
+      senderName: registration.parent_name || registration.parentName || formData.parentName || 'Encarregado',
       senderEmail: parentEmail,
       recipientEmail: 'Coach',
       text: chatText.trim(),
@@ -333,23 +333,31 @@ export default function ParentDashboard({ registration, onLogout }) {
       date: new Date().toLocaleDateString('pt-PT')
     };
 
-    if (sendMessage) {
-      sendMessage(msgObj);
+    const result = sendMessage ? await sendMessage(msgObj) : { success: false };
+    if (!result.success) {
+      alert('A mensagem não foi enviada. Tente novamente.');
+      setIsSendingChat(false);
+      return;
     }
 
-    try {
-      await supabase.functions.invoke('send-club-email', {
-        body: {
-          email: 'treinador@clube.com',
-          senderName: registration.parentName || formData.parentName,
-          athleteName: registration.athleteName || formData.athleteName,
-          subject: `💬 Mensagem do Encarregado (${registration.parentName})`,
-          message: chatText,
-          type: 'parent_chat'
-        }
-      });
-    } catch (err) {
-      console.error('Erro no envio de email ao treinador:', err);
+    // Aviso por email ao clube (só se o endereço estiver configurado em VITE_COACH_NOTIFY_EMAIL)
+    const coachNotifyEmail = import.meta.env.VITE_COACH_NOTIFY_EMAIL;
+    if (coachNotifyEmail) {
+      try {
+        const parentName = registration.parent_name || registration.parentName || 'Encarregado';
+        await supabase.functions.invoke('send-club-email', {
+          body: {
+            email: coachNotifyEmail,
+            senderName: parentName,
+            athleteName: registration.athlete_name || registration.athleteName || formData.athleteName,
+            subject: `💬 Mensagem do Encarregado (${parentName})`,
+            message: msgObj.text,
+            type: 'parent_chat'
+          }
+        });
+      } catch (err) {
+        console.error('Erro no envio de email ao treinador:', err);
+      }
     }
 
     setChatText('');
@@ -368,7 +376,7 @@ export default function ParentDashboard({ registration, onLogout }) {
           </div>
           <h1 className="font-bold text-sm">Área do Encarregado de Educação</h1>
         </div>
-        <button onClick={onLogout} className="text-xs bg-white text-clubRed px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-100 transition">
+        <button onClick={handleLogout} className="text-xs bg-white text-clubRed px-3 py-1.5 rounded-lg font-semibold hover:bg-gray-100 transition">
           Sair
         </button>
       </header>
@@ -393,7 +401,7 @@ export default function ParentDashboard({ registration, onLogout }) {
             Eventos 🏆
           </button>
           <button
-            onClick={() => setActiveTab('chat')}
+            onClick={() => { setActiveTab('chat'); fetchMessages && fetchMessages(); }}
             className={`py-2 text-[11px] sm:text-xs font-bold rounded-xl transition ${
               activeTab === 'chat' ? 'bg-clubRed text-white shadow' : 'text-gray-600 hover:bg-gray-50'
             }`}

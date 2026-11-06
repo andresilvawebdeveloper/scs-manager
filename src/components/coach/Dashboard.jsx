@@ -17,12 +17,13 @@ export default function Dashboard({ onLogout }) {
     addEvent,
     deleteEvent,
     eventAttendances,
-    toggleEventAttendance,
+    setEventPresence,
     adultRegistrations,
     fetchAdultRegistrations,
     updateAdultRegistration,
     messages,
     sendMessage,
+    fetchMessages,
     adultClasses,
     addAdultClass,
     deleteAdultClass,
@@ -56,7 +57,7 @@ export default function Dashboard({ onLogout }) {
         // Disparar notificação visual estilo push se a mensagem não for do próprio treinador
         if (payload.new && payload.new.sender !== 'Coach') {
           if ('Notification' in window && Notification.permission === 'granted') {
-            new Notification('💬 Nova mensagem de ' + (payload.new.senderName || 'Encarregado'), {
+            new Notification('💬 Nova mensagem de ' + (payload.new.sender_name || payload.new.senderName || 'Encarregado'), {
               body: payload.new.text || payload.new.message,
               icon: '/logo.png'
             });
@@ -263,6 +264,7 @@ export default function Dashboard({ onLogout }) {
 
       if (event && athlete) {
         const isAttending = typeof attendanceData === 'object' ? attendanceData.status : attendanceData;
+        if (isAttending === null || isAttending === undefined) return; // só presença do treinador, sem resposta do pai
         const athleteClass = athlete.assignedClass || athlete.assigned_class || 'Flame';
 
         if (!unseenSummaries[event.name]) {
@@ -603,20 +605,14 @@ export default function Dashboard({ onLogout }) {
       date: new Date().toLocaleDateString('pt-PT')
     };
 
-    if (sendMessage) {
-      sendMessage(msgObj);
+    const result = sendMessage ? await sendMessage(msgObj) : { success: false };
+    if (!result.success) {
+      alert('A mensagem não foi enviada: ' + (result.message || 'erro desconhecido'));
+      setIsSendingChat(false);
+      return;
     }
 
     try {
-      // Gravar diretamente na tabela 'messages' para persistência e ativação do realtime
-      await supabase.from('messages').insert([
-        {
-          sender: 'Coach',
-          recipient_email: chatTarget,
-          text: chatText.trim(),
-          date: new Date().toISOString()
-        }
-      ]);
 
       let recipients = [];
       if (chatTarget === 'all') {
@@ -1191,7 +1187,7 @@ export default function Dashboard({ onLogout }) {
             Aulas Pais
           </button>
           <button
-            onClick={() => setActiveTab('communication')}
+            onClick={() => { setActiveTab('communication'); fetchMessages && fetchMessages(); }}
             className={`py-2 text-[9px] sm:text-[11px] font-bold rounded-xl transition-all ${
               activeTab === 'communication' ? 'bg-clubRed text-white shadow-md' : 'text-gray-600 hover:bg-gray-50'
             }`}
@@ -2057,9 +2053,11 @@ export default function Dashboard({ onLogout }) {
                       return acc;
                     }, {});
 
-                    const confirmedCount = eligibleAthletes.filter(
-                      (a) => eventAttendances[`${ev.id}_${a.id}`]
-                    ).length;
+                    // status = resposta do encarregado · present = presença marcada pelo treinador
+                    const getRecord = (a) => eventAttendances[`${ev.id}_${a.id}`] || {};
+                    const confirmedCount = eligibleAthletes.filter((a) => getRecord(a).status === true).length;
+                    const declinedCount = eligibleAthletes.filter((a) => getRecord(a).status === false).length;
+                    const presentCount = eligibleAthletes.filter((a) => getRecord(a).present === true).length;
 
                     return (
                       <div key={ev.id} className="bg-gray-50 p-4 rounded-xl border border-gray-200 space-y-4">
@@ -2103,7 +2101,7 @@ export default function Dashboard({ onLogout }) {
                               onClick={() => toggleExpandEvent(ev.id)}
                               className="text-xs bg-blue-50 hover:bg-blue-100 text-blue-700 px-3 py-1.5 rounded-lg font-bold transition flex items-center space-x-1"
                             >
-                              <span>📋 Presenças ({confirmedCount}/{eligibleAthletes.length})</span>
+                              <span>📋 Presenças ({presentCount}/{eligibleAthletes.length})</span>
                             </button>
 
                             {isAdmin && deleteEvent && (
@@ -2127,9 +2125,14 @@ export default function Dashboard({ onLogout }) {
                               <h4 className="font-bold text-xs text-gray-800 uppercase tracking-wider">
                                 🏃 Chamada de Atletas para o Evento
                               </h4>
-                              <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-md">
-                                {confirmedCount} Presentes de {eligibleAthletes.length} Convocados
-                              </span>
+                              <div className="flex flex-col items-end gap-1">
+                                <span className="text-[11px] font-semibold text-emerald-600 bg-emerald-50 px-2.5 py-0.5 rounded-md">
+                                  {presentCount} Presentes de {eligibleAthletes.length} Convocados
+                                </span>
+                                <span className="text-[10px] text-gray-500">
+                                  Respostas dos pais: {confirmedCount} vão · {declinedCount} não vão · {eligibleAthletes.length - confirmedCount - declinedCount} sem resposta
+                                </span>
+                              </div>
                             </div>
 
                             {eligibleAthletes.length === 0 ? (
@@ -2146,14 +2149,16 @@ export default function Dashboard({ onLogout }) {
                                         <span>Turma {className}</span>
                                       </span>
                                       <span className="text-[10px] text-gray-500 font-medium">
-                                        {athletesInGroup.filter(a => eventAttendances[`${ev.id}_${a.id}`]).length} / {athletesInGroup.length}
+                                        {athletesInGroup.filter((a) => getRecord(a).present === true).length} / {athletesInGroup.length}
                                       </span>
                                     </div>
 
                                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pl-2">
                                       {athletesInGroup.map((athlete) => {
-                                        const key = `${ev.id}_${athlete.id}`;
-                                        const isAttending = !!eventAttendances[key];
+                                        const record = getRecord(athlete);
+                                        const isPresent = record.present === true;
+                                        const isAbsent = record.present === false;
+                                        const parentAnswer = record.status;
                                         const name = athlete.athleteName || athlete.athlete_name || athlete.fullName;
 
                                         return (
@@ -2163,16 +2168,27 @@ export default function Dashboard({ onLogout }) {
                                           >
                                             <div className="truncate pr-2">
                                               <p className="font-bold text-xs text-gray-800 truncate">{name}</p>
+                                              <p
+                                                data-testid="parent-answer"
+                                                className={`text-[10px] font-semibold ${
+                                                  parentAnswer === true ? 'text-emerald-600' : parentAnswer === false ? 'text-rose-600' : 'text-gray-400'
+                                                }`}
+                                              >
+                                                {parentAnswer === true ? 'Pai: vai' : parentAnswer === false ? 'Pai: não vai' : 'Pai: sem resposta'}
+                                              </p>
                                             </div>
 
                                             <div className="flex items-center space-x-1.5">
                                               <button
                                                 type="button"
-                                                onClick={() => {
-                                                  if (!isAttending) toggleEventAttendance(ev.id, athlete.id);
+                                                title="Presente"
+                                                aria-pressed={isPresent}
+                                                onClick={async () => {
+                                                  const result = await setEventPresence(ev.id, athlete.id, isPresent ? null : true);
+                                                  if (!result.success) alert('Não foi possível guardar a presença: ' + result.message);
                                                 }}
                                                 className={`w-8 h-8 rounded-lg font-extrabold text-sm flex items-center justify-center transition border ${
-                                                  isAttending
+                                                  isPresent
                                                     ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm scale-105'
                                                     : 'bg-white text-emerald-600 border-gray-200 hover:bg-emerald-50 opacity-60'
                                                 }`}
@@ -2182,11 +2198,14 @@ export default function Dashboard({ onLogout }) {
 
                                               <button
                                                 type="button"
-                                                onClick={() => {
-                                                  if (isAttending) toggleEventAttendance(ev.id, athlete.id);
+                                                title="Faltou"
+                                                aria-pressed={isAbsent}
+                                                onClick={async () => {
+                                                  const result = await setEventPresence(ev.id, athlete.id, isAbsent ? null : false);
+                                                  if (!result.success) alert('Não foi possível guardar a presença: ' + result.message);
                                                 }}
                                                 className={`w-8 h-8 rounded-lg font-extrabold text-sm flex items-center justify-center transition border ${
-                                                  !isAttending
+                                                  isAbsent
                                                     ? 'bg-rose-600 text-white border-rose-600 shadow-sm scale-105'
                                                     : 'bg-white text-rose-600 border-gray-200 hover:bg-rose-50 opacity-60'
                                                 }`}

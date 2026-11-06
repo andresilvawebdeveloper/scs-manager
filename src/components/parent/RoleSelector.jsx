@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 
 export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginWithCode, onAdultRegistration, onAdultLoginWithCode }) {
-  const { loginParentByCode, loginAdultByCode, sendSmsVerification, verifySmsCode } = useApp();
+  const { loginParentByCode, loginAdultByCode, sendSmsVerification, verifySmsCode, getMyRegistration } = useApp();
 
   // Estados de navegação e controlo de passos
   const [viewMode, setViewMode] = useState('main'); // 'main', 'parent_options', 'adult_options'
@@ -15,7 +15,7 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
   const [smsCode, setSmsCode] = useState('');
 
   // Estados de sessão temporária
-  const [currentRegistration, setCurrentRegistration] = useState(null);
+  const [currentAccessCode, setCurrentAccessCode] = useState('');
   const [currentPhoneNumber, setCurrentPhoneNumber] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -26,26 +26,27 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
     if (!code.trim()) return;
     setError('');
 
-    const result = loginParentByCode(code.trim());
+    setLoading(true);
+    const result = await loginParentByCode(code.trim());
     if (!result.success) {
+      setLoading(false);
       setError(result.message);
       return;
     }
 
-    const reg = result.registration;
-    const phone = reg?.phone || reg?.telemovel;
+    const phone = result.phone;
 
     if (!phone) {
+      setLoading(false);
       setError("Não existe número de telemóvel associado a esta inscrição.");
       return;
     }
 
-    setLoading(true);
     const smsResult = await sendSmsVerification(phone);
     setLoading(false);
 
     if (smsResult.success) {
-      setCurrentRegistration(reg);
+      setCurrentAccessCode(code.trim());
       setCurrentPhoneNumber(phone);
       setActiveUserType('parent');
       setStep('sms');
@@ -60,26 +61,27 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
     if (!adultCode.trim()) return;
     setError('');
 
-    const result = loginAdultByCode ? loginAdultByCode(adultCode.trim()) : { success: false, message: "Função de login não configurada." };
+    setLoading(true);
+    const result = await loginAdultByCode(adultCode.trim());
     if (!result.success) {
+      setLoading(false);
       setError(result.message);
       return;
     }
 
-    const reg = result.registration;
-    const phone = reg?.phone || reg?.telemovel;
+    const phone = result.phone;
 
     if (!phone) {
+      setLoading(false);
       setError("Não existe número de telemóvel associado a este registo.");
       return;
     }
 
-    setLoading(true);
     const smsResult = await sendSmsVerification(phone);
     setLoading(false);
 
     if (smsResult.success) {
-      setCurrentRegistration(reg);
+      setCurrentAccessCode(adultCode.trim());
       setCurrentPhoneNumber(phone);
       setActiveUserType('adult');
       setStep('sms');
@@ -96,15 +98,22 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
     setLoading(true);
 
     const verifyResult = await verifySmsCode(currentPhoneNumber, smsCode.trim());
-    setLoading(false);
 
     if (verifyResult.success) {
+      // Só depois do SMS validado é que o servidor entrega a ficha
+      const regResult = await getMyRegistration(currentAccessCode, activeUserType === 'adult' ? 'adult' : 'parent');
+      setLoading(false);
+      if (!regResult.success) {
+        setError(regResult.message);
+        return;
+      }
       if (activeUserType === 'parent') {
-        onLoginWithCode(currentRegistration);
+        onLoginWithCode(regResult.registration);
       } else if (activeUserType === 'adult' && onAdultLoginWithCode) {
-        onAdultLoginWithCode(currentRegistration);
+        onAdultLoginWithCode(regResult.registration);
       }
     } else {
+      setLoading(false);
       setError(verifyResult.message || "Código SMS inválido. Verifique e tente novamente.");
     }
   };
@@ -115,7 +124,7 @@ export default function RoleSelector({ onSelectRole, onNewRegistration, onLoginW
     setAdultCode('');
     setSmsCode('');
     setError('');
-    setCurrentRegistration(null);
+    setCurrentAccessCode('');
     setCurrentPhoneNumber('');
     setActiveUserType(null);
   };
