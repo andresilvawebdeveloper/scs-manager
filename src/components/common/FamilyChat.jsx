@@ -2,8 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { useApp } from '../../context/AppContext';
 
 const formatTime = (m) => {
-  if (!m.created_at) return m.timestamp || m.date || '';
-  const d = new Date(m.created_at);
+  const d = new Date(m.created_at || m.timestamp || '');
+  if (Number.isNaN(d.getTime())) return m.timestamp || m.date || '';
   return new Date().toDateString() === d.toDateString()
     ? d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' })
     : d.toLocaleDateString('pt-PT', { day: '2-digit', month: '2-digit' }) + ' ' + d.toLocaleTimeString('pt-PT', { hour: '2-digit', minute: '2-digit' });
