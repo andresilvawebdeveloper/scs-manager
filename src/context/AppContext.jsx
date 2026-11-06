@@ -4,6 +4,10 @@ import { supabase } from '../services/supabaseClient';
 
 const AppContext = createContext();
 
+// Notificações de mensagens (push/email pelo servidor e aviso no dispositivo).
+// Desligadas por omissão; para ligar, definir VITE_NOTIFICACOES=on e publicar a função notify-new-message.
+const NOTIFICATIONS_ON = import.meta.env.VITE_NOTIFICACOES === 'on';
+
 const ensureArray = (val) => {
   if (!val) return [];
   if (Array.isArray(val)) return val;
@@ -260,6 +264,7 @@ export function AppProvider({ children }) {
   };
 
   const showMessageNotification = (m) => {
+    if (!NOTIFICATIONS_ON) return;
     try {
       if (typeof window === 'undefined' || !('Notification' in window) || Notification.permission !== 'granted') return;
       const title = m.sender === 'Coach' && m.familyEmail === 'all'
@@ -1026,8 +1031,10 @@ export function AppProvider({ children }) {
       if (error) throw error;
       if (knownMessageIdsRef.current) knownMessageIdsRef.current.add(String(data.id));
       // As notificações não bloqueiam o envio
-      supabase.functions.invoke('notify-new-message', { body: { message_id: data.id } })
-        .catch((e) => console.error('Notificação não enviada:', e));
+      if (NOTIFICATIONS_ON) {
+        supabase.functions.invoke('notify-new-message', { body: { message_id: data.id } })
+          .catch((e) => console.error('Notificação não enviada:', e));
+      }
       await fetchMessages();
       return { success: true, id: data.id };
     } catch (err) {

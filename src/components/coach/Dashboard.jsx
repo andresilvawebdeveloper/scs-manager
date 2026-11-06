@@ -52,7 +52,7 @@ export default function Dashboard({ onLogout }) {
     fetchParentAttendances();
 
     // Pedir permissão para notificações push nativas do browser se ainda não foi concedida
-    if ('Notification' in window && Notification.permission === 'default') {
+    if (import.meta.env.VITE_NOTIFICACOES === 'on' && 'Notification' in window && Notification.permission === 'default') {
       Notification.requestPermission();
     }
 
